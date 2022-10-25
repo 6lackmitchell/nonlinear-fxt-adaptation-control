@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Adaptation-based controller for systems with unknown additive nonlinear uncertainty in the system dynamics."
 authors = ["Mitchell Black <6lack.mitchell@gmail.com>"]
 license = "MIT"
+packages = [{include="core", from="src"}, {include="models", from="src"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
