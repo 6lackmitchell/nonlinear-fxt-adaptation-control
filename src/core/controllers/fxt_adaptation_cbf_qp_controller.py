@@ -1,7 +1,7 @@
 import numpy as np
 import numdifftools as nd
 import builtins
-from typing import Callable, List, overload
+from typing import Callable, List, Tuple
 from importlib import import_module
 from nptyping import NDArray
 from control import lqr
@@ -33,14 +33,21 @@ class FxtAdaptationCbfQpController(CbfQpController):
     additive disturbance in the system dynamics.
 
     Public Methods:
-    ---------------
-    update_parameter_estimates
-    compute_theta_dot
+        update_parameter_estimates
+        compute_theta_dot
 
     Class Properties:
-    -----------------
-    TBD
+        TBD
     """
+
+    # NOTE: The initial eta parameters can be computed using initial parameter
+    # values of zero and by assuming that the function being estimated is
+    # bounded by some value L.
+
+    _updated = False
+    _eta = 100.0  #! Lazy coding -- needs to be fixed
+    _etadot = 0.0  #! Lazy coding -- needs to be fixed
+    _nu = -100.0  #! Lazy coding -- needs to be fixed
 
     def __init__(
         self,
@@ -61,21 +68,23 @@ class FxtAdaptationCbfQpController(CbfQpController):
             cbfs_pairwise,
             ignore,
         )
-        nCBF = len(self.cbf_vals)
+        n_states = 12  #! Lazy coding, need to fix
+        n_params = 10  #! Lazy coding, need to fix
+        n_cbfs = len(self.cbf_vals)
         self.n_agents = 1
-        self.filtered_wf = np.zeros((nCBF,))
-        self.filtered_wg = np.zeros((nCBF, len(self.u_max)))
-        self.q_vec = np.zeros((nCBF,))
-        self.dqdk = np.zeros((nCBF, nCBF))
-        self.dqdx = np.zeros((5, nCBF))
-        self.d2qdk2 = np.zeros((nCBF, nCBF, nCBF))
-        self.d2qdkdx = np.zeros((nCBF, 5, nCBF))
+        self.filtered_wf = np.zeros((n_cbfs,))
+        self.filtered_wg = np.zeros((n_cbfs, len(self.u_max)))
+        self.q_vec = np.zeros((n_cbfs,))
+        self.dqdk = np.zeros((n_cbfs, n_cbfs))
+        self.dqdx = np.zeros((n_states, n_cbfs))
+        self.d2qdk2 = np.zeros((n_cbfs, n_cbfs, n_cbfs))
+        self.d2qdkdx = np.zeros((n_cbfs, n_states, n_cbfs))
 
         # Unknown parameter properties
-        n_params = 10  # Constant for now
         self.n_params = n_params
         self.theta = np.zeros((n_params,))
         self.theta_dot = np.zeros((n_params,))
+        self.eta0 = 100.0 * np.ones((n_params,))  #! Lazy coding -- needs to be fixed
 
         # Gains
         self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": np.eye(n_params)}
@@ -83,31 +92,48 @@ class FxtAdaptationCbfQpController(CbfQpController):
         # Miscellaneous parameters
         self.safety = True
         self.max_class_k = 1e6  # Maximum allowable gain for linear class K function
+        self.nominal_class_k = 1.0  # Nominal value for linear class K function
         self.discretization_error = self._dt * 10.0
+        self.regressor = np.zeros((n_states, n_params))
+
+        # CBF Parameters
+        self.h = 100 * np.ones((n_cbfs,))
+        self.h0 = 100 * np.ones((n_cbfs,))
+        self.dhdx = np.zeros((n_cbfs, 2 * n_states))  #! Lazy coding -- need to fix!!!
+        self.Lfh = np.zeros((n_cbfs,))
+        self.Lgh = np.zeros((n_cbfs, 4))  #! Lazy coding -- need to fix!!!
 
     def formulate_qp(
-        self, u_nom: NDArray
-    ) -> (NDArray, NDArray, NDArray, NDArray, NDArray, NDArray):
+        self, t: float, ze: NDArray, zr: NDArray, u_nom: NDArray, ego: int, cascade: bool = False
+    ) -> Tuple[NDArray, NDArray, NDArray, NDArray, NDArray, NDArray]:
         """Formulates the quadratic program objective function matrix Q and
         vector p, the inequality constraint matrix A and vector b, and equality
         constraint matrix G and vector h to be fed into the solve_qp function
-        to generate the control input.
+        to generate the control input, i.e.
 
-        Arguments
-        ---------
-        u_nom: nominal control input for agent in question
+        min J = 1/2 * x.T @ Q @ x + p @ x
+        s.t.
+        Ax <= b
+        Gx = h
 
-        Returns
-        -------
+        Arguments:
+            t: time in sec
+            ze: array containing ego state
+            zr: array containing states of remaining (non-ego) agents
+            u_nom: nominal control input for agent in question
+            ego: identifier of ego agent
+
+        Returns:
+            Q: positive-definite matrix for quadratic term of objective function
+            p: vector for linear term of objective function
+            A: matrix multiplying decision variables for affine inequality constraint
+            b: vector for affine inequality constraint
+            G: matrix multiplying decision variables for affine equality constraint
+            h: vector for affine equality constraint
 
         """
-        # Parameters
-        na = 1 + len(zr)  # Number of agents
-        ns = len(ze)  # Number of states
-        discretization_error = self._dt * 10
-
         # Compute Q matrix and p vector for QP objective function
-        Q, p = self.compute_objective_Qp(u_nom)
+        Q, p = self.compute_objective_qp(u_nom)
 
         # Compute input constraints of form Au @ u <= bu
         Au, bu = self.compute_input_constraints()
@@ -116,33 +142,29 @@ class FxtAdaptationCbfQpController(CbfQpController):
         Ai, bi = self.compute_individual_cbf_constraints(ze, ego)
 
         # Compute pairwise/interagent CBF constraints
-        Ap, bp = self.compute_pairwise_cbf_constraints()
+        Ap, bp = self.compute_pairwise_cbf_constraints(ze, zr, ego)
 
         A = np.vstack([Au, Ai, Ap])
         b = np.hstack([bu, bi, bp])
 
         return Q, p, A, b, None, None
 
-    def compute_objective_Qp(self, u_nom: NDArray) -> (NDArray, NDArray):
+    def compute_objective_qp(self, u_nom: NDArray) -> (NDArray, NDArray):
         """Computes the matrix Q and vector p for the objective function of the
         form
 
         J = 1/2 * x.T @ Q @ x + p @ x
 
-        Arguments
-        ---------
-        u_nom: nominal control input for agent in question
+        Arguments:
+            u_nom: nominal control input for agent in question
 
-        Returns
-        -------
-        Q: quadratic term positive definite matrix for objective function
-        p: linear term vector for objective function
+        Returns:
+            Q: quadratic term positive definite matrix for objective function
+            p: linear term vector for objective function
 
         """
-        nominal_class_k = 1.0
-
         if self.nv > 0:
-            Q, p = self.objective(np.append(u_nom.flatten(), nominal_class_k))
+            Q, p = self.objective(np.append(u_nom.flatten(), self.nominal_class_k))
         else:
             Q, p = self.objective(u_nom.flatten())
 
@@ -156,14 +178,12 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         Au @ u <= bu
 
-        Arguments
-        ---------
-        None
+        Arguments:
+            None
 
-        Returns
-        -------
-        Au: input constraint matrix
-        bu: input constraint vector
+        Returns:
+            Au: input constraint matrix
+            bu: input constraint vector
 
         """
         na = 1  #! Lazy coding!! Fix this
@@ -188,19 +208,20 @@ class FxtAdaptationCbfQpController(CbfQpController):
         is dependent only on the ego agent, not the behavior of other agents
         present in the system.
 
-        Arguments
-        ---------
-        ze: ego state
-        ego: identifier of ego agent
+        Arguments:
+            ze: ego state
+            ego: identifier of ego agent
 
-        Returns
-        -------
-        Ai: individual cbf constraint matrix (nCBFs x nControls)
-        bi: individual cbf constraint vector (nCBFs x 1)
+        Returns:
+            Ai: individual cbf constraint matrix (nCBFs x nControls)
+            bi: individual cbf constraint vector (nCBFs x 1)
 
         """
         # Parameters
         ns = len(ze)  # Number of states
+        na = 1  #! Lazy coding!!!
+        Ai = np.zeros((len(self.cbfs_individual), self.nu * na + self.nv))
+        bi = np.zeros((len(self.cbfs_individual),))
 
         # Iterate over individual CBF constraints
         for cc, cbf in enumerate(self.cbfs_individual):
@@ -216,15 +237,29 @@ class FxtAdaptationCbfQpController(CbfQpController):
             else:
                 stoch = 0.0
 
+            # Time-Varying Parameter Term
+            tv_term = self.compute_time_varying_cbf_term(dhdx)
+
             # Get CBF Lie Derivatives
-            self.Lfh[cc] = dhdx @ f(ze) + stoch - self.discretization_error
+            self.Lfh[cc] = dhdx @ f(ze) + stoch - self.discretization_error + tv_term
             self.Lgh[cc, self.nu * ego : (ego + 1) * self.nu] = dhdx @ g(
                 ze
             )  # Only assign ego control
 
+            # Generate Ai and bi from CBF and associated derivatives
+            Ai[cc, :], bi[cc] = self.generate_cbf_condition(
+                cbf, self.h[cc], self.Lfh[cc], self.Lgh[cc], cc, adaptive=True
+            )
+
         # Check whether any of the safety conditions are violated
-        if (np.sum(self.h0 < 0) > 0) or (np.sum(self.h < 0) > 0):
+        if (np.sum(self.h0[: len(self.cbfs_individual)] < 0) > 0) or (
+            np.sum(self.h[: len(self.cbfs_individual)] < 0) > 0
+        ):
             self.safety = False
+            print(f"Safety Violation!! h0 --> {np.min(self.h0[:len(self.cbfs_individual)])}")
+            print(f"Safety Violation!! h  --> {np.min(self.h[:len(self.cbfs_individual)])}")
+
+        return Ai, bi
 
     def compute_pairwise_cbf_constraints(
         self, ze: NDArray, zr: NDArray, ego: int
@@ -238,19 +273,21 @@ class FxtAdaptationCbfQpController(CbfQpController):
         is dependent on both the ego agent and the behavior of some other
         agents present in the system (e.g. collision avoidance).
 
-        Arguments
-        ---------
-        ze: ego state
-        zr: array of states of remaining agents
-        ego: identifier of ego agent
+        Arguments:
+            ze: ego state
+            zr: array of states of remaining agents
+            ego: identifier of ego agent
 
-        Returns
-        -------
-        Ap: pairwise cbf constraint matrix (nCBFs x nControls)
-        bp: pairwise cbf constraint vector (nCBFs x 1)
+        Returns:
+            Ap: pairwise cbf constraint matrix (nCBFs x nControls)
+            bp: pairwise cbf constraint vector (nCBFs x 1)
 
         """
-       lci = len(self.cbfs_individual)
+        ns = len(ze)  # Number of states
+        na = 1  #! Lazy coding!!!
+        lci = len(self.cbfs_individual)
+        Ap = np.zeros((len(self.cbfs_pairwise) * len(zr), self.nu * na + self.nv))
+        bp = np.zeros((len(self.cbfs_pairwise) * len(zr),))
 
         # Iterate over pairwise CBF constraints
         for cc, cbf in enumerate(self.cbfs_pairwise):
@@ -275,26 +312,35 @@ class FxtAdaptationCbfQpController(CbfQpController):
                 else:
                     stoch = 0.0
 
+                # Time-Varying Parameter Term
+                tv_term = self.compute_time_varying_cbf_term(dhdx)
+
                 # Get CBF Lie Derivatives
                 self.Lfh[idx] = (
                     dhdx[:ns] @ f(ze)
                     + dhdx[ns:] @ f(zo)
                     + stoch
-                    - discretization_error
+                    - self.discretization_error
+                    + tv_term
                 )
                 self.Lgh[idx, self.nu * ego : (ego + 1) * self.nu] = dhdx[:ns] @ g(ze)
-                self.Lgh[idx, self.nu * other : (other + 1) * self.nu] = dhdx[ns:] @ g(
-                    zo
+                self.Lgh[idx, self.nu * other : (other + 1) * self.nu] = dhdx[ns:] @ g(zo)
+
+                # Generate Ap and bp from CBF and associated derivatives
+                p_idx = cc * len(self.cbfs_pairwise) + ii
+                Ap[p_idx, :], bp[p_idx] = self.generate_cbf_condition(
+                    cbf, self.h[idx], self.Lfh[idx], self.Lgh[idx], idx, adaptive=True
                 )
 
                 # Check whether any of the safety conditions are violated
-        if (np.sum(self.h0 < 0) > 0) or (np.sum(self.h < 0) > 0):
+        if (np.sum(self.h0[len(self.cbfs_individual) :] < 0) > 0) or (
+            np.sum(self.h[len(self.cbfs_individual) :] < 0) > 0
+        ):
             self.safety = False
-            print(
-                "{} SAFETY VIOLATION: {:.2f}".format(
-                    str(self.__class__).split(".")[-1], -h0
-                )
-            )
+            print(f"Safety Violation!! h0 --> {np.min(self.h0[len(self.cbfs_individual):])}")
+            print(f"Safety Violation!! h  --> {np.min(self.h[len(self.cbfs_individual):])}")
+
+        return Ap, bp
 
     def generate_fxtadaptation_cbf_condition(self) -> (NDArray, NDArray):
         """Generates a CBF-based control input constraint of the form
@@ -306,13 +352,11 @@ class FxtAdaptationCbfQpController(CbfQpController):
         satisfied when the constraint holds, where hdot accounts for the
         variations in time of the parameter estimates theta.
 
-        Arguments
-        ---------
-        TBD
+        Arguments:
+            TBD
 
-        Returns
-        -------
-        TBD
+        Returns:
+            TBD
 
         """
 
@@ -325,13 +369,13 @@ class FxtAdaptationCbfQpController(CbfQpController):
         where M and v are related according to Mz = v, with z the parameter
         estimation error.
 
-        Arguments
-        ---------
-        TBD
+        Arguments:
+            TBD
 
-        Returns
-        -------
-        updated_parameters
+        Returns:
+            theta: updated parameter estimates in system dynamics
+            thetadot: time-derivative of parameter estimates according to
+                adaptation law
 
         """
         # Compute time-derivatives of theta parameters
@@ -352,13 +396,11 @@ class FxtAdaptationCbfQpController(CbfQpController):
         where M and v are related according to Mz = v, with z the parameter
         estimation error.
 
-        Arguments
-        ---------
-        TBD
+        Arguments:
+            TBD
 
-        Returns
-        -------
-        theta_dot
+        Returns:
+            theta_dot: time-derivative of parameter estimates in system dynamics
 
         """
         len_v = 12
@@ -374,6 +416,126 @@ class FxtAdaptationCbfQpController(CbfQpController):
         theta_dot = G @ M.T @ v * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
 
         return theta_dot
+
+    def compute_time_varying_cbf_term(self, dhdx: NDArray) -> float:
+        """Computes the contribution of the time-varying parameters in the
+        system dynamics to the time-derivative of the CBF under consideration.
+
+        Arguments:
+            dhdx: partial derivative of CBF h with respect to state x
+
+        Returns:
+            tv_term: time-varying term in CBF derivative based on theta dot
+
+        """
+        G = self.law_gains["G"]
+        tv_term = np.trace(G) * self.eta * self.etadot + self.compute_nu(dhdx)
+
+        return tv_term
+
+    #! TO DO: Finish handling regressor matrix and state
+    def compute_nu(self, dhdx: NDArray) -> float:
+        """Computes nu, the effect of the worst-case admissible parameters on
+        the evolution of the CBF trajectories.
+
+        Arguments:
+            None
+
+        Returns:
+            nu: worst-case effect of unknown parameters on the CBF trajectories
+
+        """
+        Ldh = dhdx @ self.regressor
+        element_wise_min = np.minimum(Ldh * (self.theta + self.eta), Ldh * (self.theta - self.eta))
+        nu = np.sum(element_wise_min)
+
+        return nu
+
+    def compute_eta_and_etadot(self) -> Tuple[float, float]:
+        """Computes both eta (the maximum parameter estimation error) and
+        etadot (its time-derivative) according to the adaptation law (and gains).
+
+        Arguments:
+            None
+
+        Returns:
+            eta: maximum parameter estimation errror
+            etadot: time-derivative of maximum parameter estimation error
+
+        """
+        # Import gains
+        a = self.law_gains["a"]
+        b = self.law_gains["b"]
+        G = self.law_gains["G"]
+        w = self.law_gains["w"]
+
+        # Compute derived parameters
+        null_m = null_space(self.M)
+        rank_m = null_m.shape[0] - null_m.shape[1]
+        _, sigmas, _ = np.linalg.svd(self.M)
+        sigma_r = sigmas[rank_m - 1] if rank_m > 0 else 0
+        kv = sigma_r * np.sqrt(2 * np.max(G))
+        c1 = a * kv ** (2 + 2 / w)
+        c2 = b * kv ** (2 - 2 / w)
+        Xi = np.arctan2(
+            np.sqrt(c2) * (1 / 2 * self.eta0 @ np.linalg.inv(G) @ self.eta0) ** (1 / w),
+            np.sqrt(c1),
+        )
+        A = np.max([Xi - np.sqrt(c1 * c2) / w * self.t, 0])
+
+        # Compute eta
+        eta = np.sqrt(2 * np.max(G) * (np.sqrt(c1 / c2) * np.tan(A)) ** (w))
+
+        # Compute etadot
+        etadot = (
+            -c1
+            * np.sqrt(np.max(G) / 2)
+            * (np.sqrt(c1 / c2) * np.tan(A)) ** (w / 2 - 1)
+            / np.cos(A) ** 2
+        )
+
+        return eta, etadot
+
+    @property
+    def eta(self):
+        """Property for either computing (if necessary to update) or returning
+        the value stored for eta, the worst-case parameter estimation error."""
+        if not self._updated:
+            eta, etadot = self.compute_eta_and_etadot()
+
+            self._eta = eta
+            self._etadot = etadot
+            self._updated = True
+
+        return self._eta
+
+    @property
+    def etadot(self):
+        """Property for either computing (if necessary to update) or returning
+        the value stored for etadot, the time-derivative of the worst-case
+        parameter estimation error."""
+        if not self._updated:
+            eta, etadot = self.compute_eta_and_etadot()
+
+            self._eta = eta
+            self._etadot = etadot
+            self._updated = True
+
+        return self._etadot
+
+    @property
+    def nu(self):
+        """Property for either computing (if necessary to update) or returning
+        the value stored for nu, the effect of the worst-case admissible
+        parameters on the evolution of the CBF trajectories."""
+        if not self._updated:
+            eta, etadot = self.compute_eta_and_etadot()
+
+            self._eta = eta
+            self._etadot = etadot
+            self._updated = True
+
+        return self._nu
 
     def formulate_qp(
         self, t: float, ze: NDArray, zr: NDArray, u_nom: NDArray, ego: int, cascade: bool = False
