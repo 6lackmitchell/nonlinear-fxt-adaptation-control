@@ -1,4 +1,4 @@
-from src.core.simulate import simulate
+from core.simulate import simulate
 
 vehicle = "quadrotor"
 level = "dynamic_6dof"
