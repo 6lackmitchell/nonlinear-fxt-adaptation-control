@@ -27,6 +27,43 @@ except ModuleNotFoundError as e:
     raise e
 
 
+def basis_functions(z: NDArray) -> NDArray:
+    """Computes the values of the basis functions evaluated at the current
+    state and control values. Returns the (b x 1) vector of basis function
+    values. May offload this to another module.
+
+    Arguments
+        z: input vector (may be states and controls or outputs)
+
+    Returns
+        basis_funcs: vector of values of basis functions
+
+    """
+    # Monomial basis functions
+    psi_0nn = z  # 1st Order
+    psi_1nn = z**2  # 2nd order
+    psi_2nn = z**3  # 3rd Order
+    psi_3nn = z**4  # 4th Order
+    psi_4nn = z**5  # 5th Order
+
+    # Radial Basis Functions (RBFs)
+    k = 10.0  # Multiplier for RBF
+    Q = 1 / k * np.eye(len(z))  # Exponential gain for RBF
+
+    psi_5n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
+    psi_6nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
+
+    basis_funcs = np.vstack([psi_0nn,
+                             psi_1nn,
+                             psi_2nn,
+                             psi_3nn,
+                             psi_4nn,
+                             psi_5n1,
+                             psi_6nn,])
+
+    return basis_funcs
+
+
 class FxtAdaptationCbfQpController(CbfQpController):
     """
     Adaptation-based CBF-QP controller for systems subject to unknown, nonlinear,
@@ -342,25 +379,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         return Ap, bp
 
-    def generate_fxtadaptation_cbf_condition(self) -> (NDArray, NDArray):
-        """Generates a CBF-based control input constraint of the form
-
-        Au <= b
-
-        (with u the control input, A a matrix and b a vector of appropriate
-        dimensions) such that the CBF condition hdot + alpha(h) >= 0 is
-        satisfied when the constraint holds, where hdot accounts for the
-        variations in time of the parameter estimates theta.
-
-        Arguments:
-            TBD
-
-        Returns:
-            TBD
-
-        """
-
-    def update_parameter_estimates(self) -> (NDArray, NDArray):
+    def update_parameter_estimates(self) -> Tuple[NDArray, NDArray]:
         """Updates parameters comprising the approximated Koopman Operator
         according to the following parameter update law:
 
@@ -404,6 +423,10 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         len_v = 12
+
+        # Generate Px and Py from input/output data
+        Px = self.compute_basis_functions(np.concatenate([self.x, self.u]))
+        Py = self.compute_basis_functions()
         M = np.zeros((len_v, self.n_params))
         v = np.ones((len_v,))
 
@@ -495,6 +518,20 @@ class FxtAdaptationCbfQpController(CbfQpController):
         )
 
         return eta, etadot
+
+    def compute_basis_functions(self, z: NDArray) -> NDArray:
+        """Computes the values of the basis functions evaluated at the current
+        state and control values. Returns the (b x 1) vector of basis function
+        values.
+
+        Arguments
+            z: input vector (may be states and controls or outputs)
+
+        Returns
+            basis_functions: vector of values of basis functions
+
+        """
+        return basis_functions(z)
 
     @property
     def eta(self):
