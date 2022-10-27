@@ -8,7 +8,7 @@ from typing import Tuple
 import numpy as np
 from nptyping import NDArray
 from core.controllers.controller import Controller
-from .physical_params import GRAVITY, MASS, JX, JY, JZ
+from .physical_params import GRAVITY, MASS, JX, JY, JZ, U_MAX
 from ..rotations import rotation_body_frame_to_inertial_frame
 
 # from .initial_conditions import *
@@ -77,7 +77,6 @@ class CascadedTrackingController(Controller):
         )
 
         self.u = np.array([force, pitch_moment, roll_moment, yaw_moment])
-        print(self.u)
 
         return self.u, 1, "Optimal"
 
@@ -96,7 +95,7 @@ class CascadedTrackingController(Controller):
         """
         force = MASS * np.max([0, (GRAVITY + zddot) / -rotation[2, 2]])
 
-        return force
+        return np.clip(force, 0, U_MAX[0])
 
     def compute_moment_commands(
         self, t: float, ze: NDArray, force: float, xddot: float, yddot: float, rotation: NDArray
@@ -152,7 +151,11 @@ class CascadedTrackingController(Controller):
             )
             yaw_moment = 0  # -k_psi * (ze[11] - r_c) * Jz - (Jx - Jy)*ze[9]*ze[10]
 
-        return pitch_moment, roll_moment, yaw_moment
+        return (
+            np.clip(pitch_moment, -U_MAX[1], U_MAX[1]),
+            np.clip(roll_moment, -U_MAX[2], U_MAX[2]),
+            np.clip(yaw_moment, -U_MAX[3], U_MAX[3]),
+        )
 
     def get_desired_acceleration(
         self, t: float, ze: NDArray, dr: float, tc: float, rotation: NDArray

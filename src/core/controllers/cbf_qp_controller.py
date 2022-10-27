@@ -63,17 +63,13 @@ class CbfQpController(Controller):
         self.status = "Initialized"
         self.n_controls = len(u_max)
         self.n_dec_vars = 1  # Number of additional optimization variables
-        # self.cbf_vals = np.zeros((len(cbfs_individual) + (self.na - 1) * len(cbfs_pairwise)),)
-
         self.cbf_vals = np.zeros(
             (len(cbfs_individual) + (self.n_agents - 1) * len(cbfs_pairwise)),
         )
 
         # Define individual input constraints
         self.au = block_diag(*self.n_controls * [np.array([[1, -1]]).T])
-        self.bu = np.tile(
-            np.array(self.u_max).reshape(self.n_controls, 1), self.n_controls
-        ).flatten()
+        self.bu = np.tile(np.array(self.u_max).reshape(self.n_controls, 1), 2).flatten()
 
     def _compute_control(
         self, t: float, z: NDArray, cascaded: bool = False
@@ -118,8 +114,9 @@ class CbfQpController(Controller):
         u_nom = np.zeros((len(z), self.n_controls))
         u_nom[ego, :], code_nom, status_nom = self.nominal_controller.compute_control(t, z_copy_nom)
         self.u_nom = u_nom[ego, :]
+        self.z_ego = z[ego]
 
-        tuning_nominal = True
+        tuning_nominal = False
         if tuning_nominal:
             self.u = self.u_nom
             return self.u, 1, "Optimal"

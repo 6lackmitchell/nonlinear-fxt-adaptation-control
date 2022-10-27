@@ -13,7 +13,7 @@ from core.controllers.fxt_adaptation_cbf_qp_controller import FxtAdaptationCbfQp
 from ..system import f, g, nControls
 from .timing_params import *
 from .physical_params import U_MAX
-from .objective_functions import objective_minimum_norm
+from .objective_functions import objective_minimum_deviation
 from .nominal_controllers import CascadedTrackingController
 from .initial_conditions import z0, u0, N_AGENTS, N_STATES, N_CONTROLS
 
@@ -54,7 +54,7 @@ def fxt_adaptation_cbf_qp_controller(idx: int) -> FxtAdaptationCbfQpController:
     return FxtAdaptationCbfQpController(
         U_MAX,
         N_AGENTS,
-        objective_minimum_norm,
+        objective_minimum_deviation,
         CascadedTrackingController(idx),
         cbfs_individual,
         cbfs_pairwise,
