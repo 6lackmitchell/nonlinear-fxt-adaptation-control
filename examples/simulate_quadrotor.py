@@ -1,10 +1,11 @@
+"""Module docstring??"""
 from core.simulate import simulate
 
-vehicle = "quadrotor"
-level = "dynamic_6dof"
-situation = "wind_field"
+VEHICLE = "quadrotor"
+LEVEL = "dynamic_6dof"
+SITUATION = "wind_field"
 
-end_time = 40.0
-timestep = 0.01
+ENDTIME = 40.0
+TIMESTEP = 0.01
 
-success = simulate(end_time, timestep, vehicle, level, situation)
+SUCCESS = simulate(ENDTIME, TIMESTEP, VEHICLE, LEVEL, SITUATION)

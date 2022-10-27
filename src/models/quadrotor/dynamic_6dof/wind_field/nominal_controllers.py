@@ -1,177 +1,212 @@
+"""nominal_controllers.py
+
+Defines classes representing nominal (i.e. unconstrained, unsafe, etc.)
+controllers for the quadrotor dynamical model for the wind_field situation.
+
+"""
+from typing import Tuple
 import numpy as np
-from control import lqr
 from nptyping import NDArray
 from core.controllers.controller import Controller
-from bicycle.dynamic.warehouse.physical_params import LW, u_max
-from bicycle.dynamic.models import f
-from bicycle.dynamic.warehouse.initial_conditions import *
+from .physical_params import GRAVITY, MASS, JX, JY, JZ
+from ..rotations import rotation_body_frame_to_inertial_frame
+
+# from .initial_conditions import *
 
 
-class LqrController(Controller):
+class CascadedTrackingController(Controller):
+    """Object for cascaded tracking control for the 6-DOF quadrotor dynamical
+    model.
 
-    def __init__(self,
-                 ego_id: int):
+    Public Methods:
+        populate here
+
+    Public Attributes:
+        populate here
+
+    """
+
+    CONTROL_GAINS = {
+        "k_r": 1.0,  # Yaw rate proportional gain
+        "k_phi": 125.0,  # Roll moment proportional gain
+        "k_theta": 125.0,  # Pitch moment proportional gain
+        "k_psi": 1.0,  # Yaw moment proportional gain
+        "zeta": 1.0,  # Damping ratio
+        "tau_f": 0.5,  # Time constant (force control)
+        "tau_m": 0.2,  # Time constant (moment control)
+        "rate": 2.0,  # Exponential decay rate
+        "f_gerono": 0.1,  # Gerono lemniscate frequency (Hz)
+        "a_gerono": 3.0,  # Gerono lemniscate gain
+    }
+
+    def __init__(self, ego_id: int):
         super().__init__()
+
         self.ego_id = ego_id
         self.complete = False
 
-    def _compute_control(self,
-                         t: float,
-                         z: NDArray) -> (int, str):
-        """Computes the nominal input for a vehicle in the intersection situation.
+    def _compute_control(self, t: float, z: NDArray) -> Tuple[int, str]:
+        """Computes the input using the cascaded tracking controller for the
+        6-DOF quadrotor dynamical model.
 
-        INPUTS
-        ------
-        t: time (in sec)
-        z: full state vector
+        Arguments:
+            t: time (in sec)
+            z: full state vector
 
-        OUTPUTS
-        -------
-        code: success (1) / error (0, -1, ...) code
-        status: more informative success / error flag
+        Returns:
+            code: success (1) or error (0, -1, ...) code
+            status: more information on success or cause of error
 
         """
-        # Modified LQR Controller from Black et al. 2022 (https://arxiv.org/pdf/2204.00127v1.pdf)
         ze = z[self.ego_id]
 
-        # if t == 0.0 and self.ego_id > 2:
-        #     vi[self.ego_id] = cruise_speed + np.random.uniform(low=-1.0, high=1.0)
+        # Get rotation matrix
+        rotation = rotation_body_frame_to_inertial_frame(ze)
 
-        xd = xg[self.ego_id]
-        yd = yg[self.ego_id]
+        # Compute desired accelerations
+        dr = self.CONTROL_GAINS["zeta"]
+        tc = self.CONTROL_GAINS["tau_f"]
+        xddot, yddot, zddot = self.get_desired_acceleration(t, ze, dr, tc, rotation)
 
-        speed_d = 0.5
-        vd = speed_d * np.min([1, 1 / 2 * np.linalg.norm([ze[0] - xd, ze[1] - yd])])
-        th = np.arctan2(yd - ze[1], xd - ze[0])
-        vxd = vd * np.cos(th)
-        vyd = vd * np.sin(th)
+        # Compute force output
+        force = self.compute_force_command(zddot, rotation)
 
-        # v_gain = 0.001
-        # vxd = v_gain * (xd - ze[0])**3
-        # vyd = v_gain * (yd - ze[1])**3
+        # Compute momentts
+        pitch_moment, roll_moment, yaw_moment = self.compute_moment_commands(
+            t, ze, force, xddot, yddot, rotation
+        )
 
-        q_star = np.array([xd, yd, vxd, vyd])  # desired state
-        zeta = np.array([ze[0], ze[1], f(ze)[0], f(ze)[1]])  # double integrator state
-        tracking_error = zeta - q_star
-        if np.linalg.norm(tracking_error) < 0.25:
-            tracking_error = np.array([0, 0, f(ze)[0], f(ze)[1]])
-            self.complete = True
-
-        A_di = np.array([[0, 0, 1, 0],
-                         [0, 0, 0, 1],
-                         [0, 0, 0, 0],
-                         [0, 0, 0, 0]])
-        B_di = np.array([[0, 0],
-                         [0, 0],
-                         [1, 0],
-                         [0, 1]])
-
-        gain = np.min([1.0 / (0.01 + (tracking_error[0])**2 + (tracking_error[1])**2), 1.0])
-        Q = gain * np.eye(4)
-        R = np.eye(2)
-
-        # Compute LQR control input for double integrator model
-        K, _, _ = lqr(A_di, B_di, Q, R)
-        mu = -K @ tracking_error
-
-        # Create transformation matrix
-        S = np.array([[-ze[3] * np.sin(ze[2]) / np.cos(ze[4]) ** 2, np.cos(ze[2]) - np.sin(ze[2]) * np.tan(ze[4])],
-                      [ze[3] * np.cos(ze[2]) / np.cos(ze[4]) ** 2, np.sin(ze[2]) + np.cos(ze[2]) * np.tan(ze[4])]])
-
-        if ze[3] > 0.1:
-            vec = np.array([mu[0] + f(ze)[1] * f(ze)[2], mu[1] - f(ze)[0] * f(ze)[2]])
-            u = np.linalg.inv(S) @ vec
-            omega = u[0]
-            ar = u[1]
-        else:
-            omega = 0.0
-            theta = np.arctan2(mu[1], mu[0]) - ze[2]
-            sign_ar = 1 if (-np.pi / 2 < theta < np.pi / 2) else -1
-            ar = np.linalg.norm(mu) * sign_ar
-
-        omega = np.clip(omega, -u_max[0], u_max[0])
-        ar = np.clip(ar, -u_max[1], u_max[1])
-
-        self.u = np.array([omega, ar])
+        self.u = np.array([force, pitch_moment, roll_moment, yaw_moment])
+        print(self.u)
 
         return self.u, 1, "Optimal"
 
+    def compute_force_command(self, zddot: float, rotation: NDArray) -> float:
+        """Computes the force control for the quadrotor tracking controller. The
+        force control is the first level of the cascaded controller, and the
+        moments depend on the computed force value.
 
-class ZeroController(Controller):
+        Arguments:
+            zddot: desired acceleration (in m/s^2) in the positive z direction
+            rotation: body to inertial frame rotation matrix
 
-    def __init__(self,
-                 ego_id: int):
-        super().__init__()
-        self.ego_id = ego_id
-        self.complete = False
-
-    def _compute_control(self,
-                         t: float,
-                         z: NDArray) -> (int, str):
-        """Computes the nominal input for a vehicle in the intersection situation.
-
-        INPUTS
-        ------
-        t: time (in sec)
-        z: full state vector
-
-        OUTPUTS
-        -------
-        code: success (1) / error (0, -1, ...) code
-        status: more informative success / error flag
+        Returns:
+            force: control input in N
 
         """
-        # Modified LQR Controller from Black et al. 2022 (https://arxiv.org/pdf/2204.00127v1.pdf)
-        ze = z[self.ego_id]
+        force = MASS * np.max([0, (GRAVITY + zddot) / -rotation[2, 2]])
 
-        # if t == 0.0 and self.ego_id > 2:
-        #     vi[self.ego_id] = cruise_speed + np.random.uniform(low=-1.0, high=1.0)
-        omega = 0.0
+        return force
 
-        if self.ego_id == 7:
-            if ze[0] < -5:
-                a = 0.0
-            elif t < 25:
-                a = -1 / 3 * ze[3]
-            else:
-                a = 1/3 * (1 - ze[3])
-        elif self.ego_id == 8:
-            if ze[0] < -7:
-                a = 0.0
-            elif t < 25:
-                a = -1 / 3 * ze[3]
-            else:
-                a = 1/3 * (1 - ze[3])
-        else:
-            a = 0.0
+    def compute_moment_commands(
+        self, t: float, ze: NDArray, force: float, xddot: float, yddot: float, rotation: NDArray
+    ) -> Tuple[float, float, float]:
+        """Computes the force control for the quadrotor tracking controller. The
+        force control is the first level of the cascaded controller, and the
+        moments depend on the computed force value.
 
-        self.u = np.array([omega, a])
+        Arguments:
+            t: time (in sec)
+            ze: ego vehicle state vector
+            force: thrust force (in N) computed by first level of cascaded controller
+            xddot: desired acceleration (in m/s^2) in the inertial x direction
+            yddot: desired acceleration (in m/s^2) in the inertial y direction
+            rotation: rotation matrix from body-fixed frame to inertial frame
 
-        return self.u, 1, "Optimal"
+        Returns:
+            pitch_moment
+            roll_moment
+            yaw_moment
 
-# class ZeroController(Controller):
-#
-#     def __init__(self,
-#                  ego_id: int):
-#         super().__init__()
-#         self.ego_id = ego_id
-#
-#     def _compute_control(self,
-#                          t: float,
-#                          z: NDArray) -> (int, str):
-#         """Computes the nominal input for a vehicle in the intersection situation.
-#
-#         INPUTS
-#         ------
-#         t: time (in sec)
-#         z: full state vector
-#
-#         OUTPUTS
-#         -------
-#         code: success (1) / error (0, -1, ...) code
-#         status: more informative success / error flag
-#
-#         """
-#         self.u = np.array([0.0, np.random.uniform(low=-0.1, high=0.1)])
-#
-#         return self.u, 1, "Optimal"
+        """
+        pitch_moment = 0.0
+        roll_moment = 0.0
+        yaw_moment = 0.0
+
+        theta = 0.0  ## NEED TO FIX: this is not correct
+
+        if force > 0.0:
+            R13_c = -MASS * xddot / force
+            R23_c = -MASS * yddot / force
+            R33_c = theta + np.pi / 2
+
+            tc_R = 0.5 * self.CONTROL_GAINS["tau_f"]
+            if t > 1.0:
+                tc_Rf = 0.1 * self.CONTROL_GAINS["tau_f"]
+                tc_R = tc_Rf + (self.CONTROL_GAINS["tau_m"] - tc_Rf) * np.exp(
+                    -self.CONTROL_GAINS["rate"] * (t - 1.0)
+                )
+
+            R13dot_c = -(rotation[0, 2] - R13_c) / (tc_R)
+            R23dot_c = -(rotation[1, 2] - R23_c) / (tc_R)
+
+            p_c = -R13dot_c * rotation[0, 1] - R23dot_c * rotation[1, 1]
+            q_c = R13dot_c * rotation[0, 0] + R23dot_c * rotation[1, 2]
+            r_c = 0  # -k_r * (ze[8] - theta + np.pi/2)
+
+            pitch_moment = (
+                -self.CONTROL_GAINS["k_phi"] * (ze[9] - p_c) * JX - (JY - JZ) * ze[10] * ze[11]
+            )
+            roll_moment = (
+                -self.CONTROL_GAINS["k_theta"] * (ze[10] - q_c) * JY - (JZ - JX) * ze[9] * ze[11]
+            )
+            yaw_moment = 0  # -k_psi * (ze[11] - r_c) * Jz - (Jx - Jy)*ze[9]*ze[10]
+
+        return pitch_moment, roll_moment, yaw_moment
+
+    def get_desired_acceleration(
+        self, t: float, ze: NDArray, dr: float, tc: float, rotation: NDArray
+    ) -> NDArray:
+        """Computes the desired acceleration of the quadrotor in the XYZ
+        coordinates in the inertial frame.
+
+        Arguments:
+            TBD
+
+        Returns:
+            TBD
+
+        """
+        # Time Constant Adjustments
+        tc_x = tc
+        tc_y = tc
+        tc_z = tc
+
+        # Compute velocities in inertial frame
+        xdot, ydot, zdot = rotation @ ze[3:6]  # + regressor(state)[0:3] @ thetaHat
+
+        # Setpoint -- take off
+        x_c = ze[0]
+        y_c = ze[1]
+        xdot_c = 0.0
+        ydot_c = 0.0
+        xddot_c = 0.0
+        yddot_c = 0.0
+        z_c = 2.0
+        zdot_c = 0.0
+        zddot_c = 0.0
+
+        # Gerono Lemniscate Trajectory -- override takeoff when altitude sufficiently high
+        if ze[2] > 1.0:
+            B = 2 * np.pi * self.CONTROL_GAINS["f_gerono"]
+
+            x_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
+            y_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
+
+            xdot_c = B * self.CONTROL_GAINS["a_gerono"] * np.cos(B * t)
+            ydot_c = B * self.CONTROL_GAINS["a_gerono"] * (np.cos(B * t) ** 2 - np.sin(B * t) ** 2)
+
+            xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
+            yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
+
+        xddot = (
+            -2 * dr / tc_x * (xdot - xdot_c) - (ze[0] - x_c) / tc_x**2 + xddot_c
+        )  # - rotation[0] @ regressor(state)[3:6] @ thetaHat
+        yddot = (
+            -2 * dr / tc_y * (ydot - ydot_c) - (ze[1] - y_c) / tc_y**2 + yddot_c
+        )  # - rotation[1] @ regressor(state)[3:6] @ thetaHat
+        zddot = (
+            -2 * dr / tc_z * (zdot - zdot_c) - (ze[2] - z_c) / tc_z**2 + zddot_c
+        )  # - rotation[2] @ regressor(state)[3:6] @ thetaHat
+
+        return xddot, yddot, zddot

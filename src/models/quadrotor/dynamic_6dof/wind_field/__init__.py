@@ -1,16 +1,21 @@
+"""__init__.py
+
+Loads parameters and functions for the quadrotor/dynamic_6dof wind_field situation.
+
+"""
 import platform
 import builtins
 from importlib import import_module
 from core.agent import Agent
-from core.controllers.cbfs import cbfs_individual, cbfs_pairwise, cbf0
+from core.cbfs import cbfs_individual, cbfs_pairwise, cbf0
 from core.controllers.cbf_qp_controller import CbfQpController
-from core.controllers.consolidated_cbf_controller import ConsolidatedCbfController
+from core.controllers.fxt_adaptation_cbf_qp_controller import FxtAdaptationCbfQpController
 from ..system import f, g, nControls
 from .timing_params import *
-from .physical_params import u_max
-from .objective_functions import objective_accel_and_steering
-from .nominal_controllers import LqrController, ZeroController
-from .initial_conditions import *
+from .physical_params import U_MAX
+from .objective_functions import objective_minimum_norm
+from .nominal_controllers import CascadedTrackingController
+from .initial_conditions import z0, u0, N_AGENTS, N_STATES, N_CONTROLS
 
 if builtins.PROBLEM_CONFIG["system_model"] == "stochastic":
     from ..system import (
@@ -26,22 +31,31 @@ else:
     )
 
 # Configure parameters
-nAgents = len(z0)
 time = [dt, tf]
 
 if platform.machine() == "aarch64":
     save_path = "/home/6lackmitchell/Documents/datastore/warehouse/test.pkl"
 else:
-    save_path = "/Users/mblack/Documents/git/ccbf-control/data/warehouse/test.pkl"
+    save_path = "/Users/mblack/Documents/git/nonlinear-fxt-adaptation-control/data/quadrotor/dynamic_6dof/wind_field/test.pkl"
 
 
 # Define controllers
-def consolidated_cbf_controller(idx: int) -> ConsolidatedCbfController:
-    return ConsolidatedCbfController(
-        u_max,
-        nAgents,
-        objective_accel_and_steering,
-        LqrController(idx),
+def fxt_adaptation_cbf_qp_controller(idx: int) -> FxtAdaptationCbfQpController:
+    """Returns instance of a FxtAdaptationCbfQpController object for agent
+    corresponding to identifier idx.
+
+    Arguments
+        idx: agent identifier
+
+    Returns
+        FxtAdaptationCbfQpController
+
+    """
+    return FxtAdaptationCbfQpController(
+        U_MAX,
+        N_AGENTS,
+        objective_minimum_norm,
+        CascadedTrackingController(idx),
         cbfs_individual,
         cbfs_pairwise,
     )
@@ -49,13 +63,16 @@ def consolidated_cbf_controller(idx: int) -> ConsolidatedCbfController:
 
 # Define CBF Controlled Agents
 cbf_controlled_agents = [
-    Agent(i, z0[i, :], u0, cbf0, time, step_dynamics, consolidated_cbf_controller(i), save_path)
-    for i in range(3)
+    Agent(
+        i, z0[i, :], u0, cbf0, time, step_dynamics, fxt_adaptation_cbf_qp_controller(i), save_path
+    )
+    for i in range(1)
 ]
-human_agents = [
-    Agent(i, z0[i, :], u0, cbf0, time, step_dynamics, ZeroController(i), save_path)
-    for i in range(3, 9)
-]
+# human_agents = [
+#     Agent(i, z0[i, :], u0, cbf0, time, step_dynamics, ZeroController(i), save_path)
+#     for i in range(3, 9)
+# ]
+human_agents = []
 
 
 centralized_agents = None

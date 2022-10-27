@@ -1,35 +1,41 @@
+"""cbf_qp_controller.py
+
+This module provides the interface to the CbfQpController class, an object
+used to compute the control input for a system using the widely-studied
+control barrier function (CBF) based quadratic program (QP) control law.
+
+Classes:
+    CbfQpController
+
+"""
 import builtins
-import numpy as np
-from sys import exit
+from typing import Tuple, Callable, List
 from importlib import import_module
 from nptyping import NDArray
-from typing import Callable, List
+import numpy as np
 from scipy.linalg import block_diag
 from core.solve_cvxopt import solve_qp_cvxopt
 from core.controllers.controller import Controller
-from core.controllers.cbfs import Cbf
+from core.cbfs import Cbf
 
 vehicle = builtins.PROBLEM_CONFIG["vehicle"]
 control_level = builtins.PROBLEM_CONFIG["control_level"]
 system_model = builtins.PROBLEM_CONFIG["system_model"]
-mod = vehicle + "." + control_level + ".models"
+mod = "models." + vehicle + "." + control_level + ".system"
 
 # Programmatic import
-try:
-    module = import_module(mod)
-    globals().update({"f": getattr(module, "f")})
-    globals().update({"g": getattr(module, "g")})
-    globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
-
-except ModuleNotFoundError as e:
-    print("No module named '{}' -- exiting.".format(mod))
-    raise e
-
-global integrated_error
-integrated_error = np.zeros((25,))
+module = import_module(mod)
+globals().update({"f": getattr(module, "f")})
+globals().update({"g": getattr(module, "g")})
+globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
 
 
 class CbfQpController(Controller):
+    """CbfQpController
+
+    Class docstring here.
+
+    """
 
     _stochastic = False
     _generate_cbf_condition = None
@@ -47,7 +53,7 @@ class CbfQpController(Controller):
     ):
         super().__init__()
         self.u_max = u_max
-        self.na = nAgents
+        self.n_agents = nAgents
         self.objective = objective_function
         self.nominal_controller = nominal_controller
         self.cbfs_individual = cbfs_individual
@@ -55,24 +61,23 @@ class CbfQpController(Controller):
         self.ignored_agents = ignore
         self.code = 0
         self.status = "Initialized"
-        self.nu = len(u_max)
-        self.nv = 1  # Number of additional optimization variables
+        self.n_controls = len(u_max)
+        self.n_dec_vars = 1  # Number of additional optimization variables
         # self.cbf_vals = np.zeros((len(cbfs_individual) + (self.na - 1) * len(cbfs_pairwise)),)
 
-        print("CBFS_INDIVIDUAL: {}".format(len(cbfs_individual)))
-        print("CBFS_PAIRWISE: {}".format(len(cbfs_pairwise)))
-        print("NA: {}".format(self.na))
         self.cbf_vals = np.zeros(
-            (len(cbfs_individual) + (self.na - 1) * len(cbfs_pairwise)),
+            (len(cbfs_individual) + (self.n_agents - 1) * len(cbfs_pairwise)),
         )
 
         # Define individual input constraints
-        self.au = block_diag(*self.nu * [np.array([[1, -1]]).T])
-        self.bu = np.tile(np.array(self.u_max).reshape(self.nu, 1), self.nu).flatten()
+        self.au = block_diag(*self.n_controls * [np.array([[1, -1]]).T])
+        self.bu = np.tile(
+            np.array(self.u_max).reshape(self.n_controls, 1), self.n_controls
+        ).flatten()
 
     def _compute_control(
         self, t: float, z: NDArray, cascaded: bool = False
-    ) -> (NDArray, NDArray, int, str, float):
+    ) -> Tuple[NDArray, NDArray, int, str, float]:
         """Computes the vehicle's control input based on a cascaded approach: first, the CBF constraints attempt to
         filter out unsafe inputs on the first level. If no safe control exists, then all control inputs are eligible
         for safety filtering.
@@ -91,7 +96,6 @@ class CbfQpController(Controller):
         status: more info on error/success
 
         """
-        global integrated_error
         code = 0
         status = "Incomplete"
 
@@ -111,14 +115,11 @@ class CbfQpController(Controller):
         # Compute nominal control input for ego only -- assume others are zero
         z_copy_nom = z.copy()
         z_copy_nom[self.ego_id] = z[ego]
-        u_nom = np.zeros((len(z), 2))
+        u_nom = np.zeros((len(z), self.n_controls))
         u_nom[ego, :], code_nom, status_nom = self.nominal_controller.compute_control(t, z_copy_nom)
-        u_nom[ego, :] = u_nom[ego, :] + integrated_error[ego]
         self.u_nom = u_nom[ego, :]
 
-        # print(integrated_error[ego])
-
-        tuning_nominal = False
+        tuning_nominal = True
         if tuning_nominal:
             self.u = self.u_nom
             return self.u, 1, "Optimal"
@@ -139,55 +140,21 @@ class CbfQpController(Controller):
                     pass
             else:
                 status = "Divide by Zero"
-                self.u = np.zeros((self.nu,))
+                self.u = np.zeros((self.n_controls,))
 
         else:
             pass
 
-            # # Get matrices and vectors for QP controller
-            # Q, p, A, b, G, h = self.formulate_qp(t, ze, zo, u_nom, ego, cascade=cascaded)
-            #
-            # # Solve QP
-            # sol = solve_qp_cvxopt(Q, p, A, b, G, h)
-            #
-            # # Check solution
-            # if 'code' in sol.keys():
-            #     code = sol['code']
-            #     status = sol['status']
-            #
-            #     if not code:
-            #         if cascaded:
-            #             Q, p, A, b, G, h = self.formulate_qp(t, ze, zo, u_nom, ego)
-            #             sol = solve_qp_cvxopt(Q, p, A, b, G, h)
-            #             if not sol['code']:
-            #                 self.u = np.zeros((self.nu,))
-            #             else:
-            #                 self.assign_control(sol, ego)
-            #         else:
-            #             self.u = np.zeros((self.nu,))
-            #     else:
-            #         alf = np.array(sol['x'])[-1]
-            #         self.assign_control(sol, ego)
-            #
-            # else:
-            #     code = 0
-            #     status = 'Divide by Zero'
-            #     self.u = np.zeros((self.nu,))
-
         if not code:
             print(A[-1, :])
             print(b[-1])
-            print('wtf')
-        decay_const = 0.0  # needs to be < 1
-        integrated_error[ego] = (
-            np.linalg.norm(self.u - self.u_nom) + integrated_error[ego]
-        ) * decay_const
+            print("wtf")
 
         return self.u, code, status
 
     def formulate_qp(
         self, t: float, ze: NDArray, zr: NDArray, u_nom: NDArray, ego: int, cascade: bool = False
-    ) -> (NDArray, NDArray, NDArray, NDArray, NDArray, NDArray, float):
+    ) -> Tuple[NDArray, NDArray, NDArray, NDArray, NDArray, NDArray, float]:
         """Configures the Quadratic Program parameters (Q, p for objective function, A, b for inequality constraints,
         G, h for equality constraints).
 
@@ -200,11 +167,11 @@ class CbfQpController(Controller):
         # Configure QP Matrices
         # Q, p: objective function
         # Au, bu: input constraints
-        if self.nv > 0:
+        if self.n_dec_vars > 0:
             alpha_nom = 1.0
             Q, p = self.objective(np.append(u_nom.flatten(), alpha_nom))
-            Au = block_diag(*(na + self.nv) * [self.au])[:-2, :-1]
-            bu = np.append(np.array(na * [self.bu]).flatten(), self.nv * [100, 0])
+            Au = block_diag(*(na + self.n_dec_vars) * [self.au])[:-2, :-1]
+            bu = np.append(np.array(na * [self.bu]).flatten(), self.n_dec_vars * [100, 0])
         else:
             Q, p = self.objective(u_nom.flatten())
             Au = block_diag(*(na) * [self.au])
@@ -212,7 +179,7 @@ class CbfQpController(Controller):
 
         # Initialize inequality constraints
         lci = len(self.cbfs_individual)
-        Ai = np.zeros((lci + len(zr), self.nu * na + self.nv))
+        Ai = np.zeros((lci + len(zr), self.n_controls * na + self.n_dec_vars))
         bi = np.zeros((lci + len(zr),))
 
         # Iterate over individual CBF constraints
@@ -230,10 +197,12 @@ class CbfQpController(Controller):
 
             # Get CBF Lie Derivatives
             Lfh = dhdx @ f(ze) + stoch
-            Lgh = np.zeros((self.nu * na,))
-            Lgh[self.nu * ego : (ego + 1) * self.nu] = dhdx @ g(ze)  # Only assign ego control
+            Lgh = np.zeros((self.n_controls * na,))
+            Lgh[self.n_controls * ego : (ego + 1) * self.n_controls] = dhdx @ g(
+                ze
+            )  # Only assign ego control
             if cascade:
-                Lgh[self.nu * ego] = 0.0
+                Lgh[self.n_controls * ego] = 0.0
 
             # Ai[cc, :], bi[cc] = self.generate_cbf_condition(cbf, h, Lfh, Lgh, cc, adaptive=True)
             Ai[cc, :], bi[cc] = self.generate_cbf_condition(cbf, h, Lfh, Lgh, cc)
@@ -264,11 +233,11 @@ class CbfQpController(Controller):
 
                 # Get CBF Lie Derivatives
                 Lfh = dhdx[:ns] @ f(ze) + dhdx[ns:] @ f(zo) + stoch
-                Lgh = np.zeros((self.nu * na,))
-                Lgh[self.nu * ego : (ego + 1) * self.nu] = dhdx[:ns] @ g(ze)
+                Lgh = np.zeros((self.n_controls * na,))
+                Lgh[self.n_controls * ego : (ego + 1) * self.n_controls] = dhdx[:ns] @ g(ze)
                 if cascade:
-                    Lgh[self.nu * ego] = 0.0
-                # Lgh[self.nu * idx:(idx + 1) * self.nu] = dhdx[ns:] @ g(zo)  # Only allow ego to compensate for safety
+                    Lgh[self.n_controls * ego] = 0.0
+                # Lgh[self.n_controls * idx:(idx + 1) * self.n_controls] = dhdx[ns:] @ g(zo)  # Only allow ego to compensate for safety
 
                 if h0 < 0:
                     print(
@@ -300,11 +269,11 @@ class CbfQpController(Controller):
 
     def assign_control(self, solution: dict, ego: int) -> None:
         """Assigns the control solution to the appropriate agent."""
-        u = np.array(solution["x"][self.nu * ego : self.nu * (ego + 1)]).flatten()
+        u = np.array(solution["x"][self.n_controls * ego : self.n_controls * (ego + 1)]).flatten()
         self.u = np.clip(u, -self.u_max, self.u_max)
         # Assign other agents' controls if this is a centralized node
         if hasattr(self, "centralized_agents"):
             for agent in self.centralized_agents:
                 agent.u = np.array(
-                    solution["x"][agent.nu * agent.id : self.nu * (agent.id + 1)]
+                    solution["x"][agent.nu * agent.id : self.n_controls * (agent.id + 1)]
                 ).flatten()

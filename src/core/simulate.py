@@ -28,28 +28,33 @@ def simulate(tf: float, dt: float, vehicle: str, level: str, situation: str) -> 
     }
 
     if vehicle == "quadrotor":
-        from models.quadrotor import nAgents, nStates, z0, centralized_agents, decentralized_agents
+        from models.quadrotor import (
+            N_AGENTS,
+            N_STATES,
+            z0,
+            centralized_agents,
+            decentralized_agents,
+        )
 
-    nTimesteps = int((tf - 0.0) / dt) + 1
+    N_TIMESTEPS = int((tf - 0.0) / dt) + 1
 
     # Simulation setup
-    z = np.zeros((nTimesteps, nAgents, nStates))
+    z = np.zeros((N_TIMESTEPS, N_AGENTS, N_STATES))
     z[0, :, :] = z0
-    complete = np.zeros((nAgents,))
-    complete[3:] = 1
-    # centralized_agents = deepcopy(centralized_agents_list)
-    # decentralized_agents = deepcopy(decentralized_agents_list)
+    complete = np.zeros((N_AGENTS,))
 
     # Simulate program
-    for ii, tt in enumerate(np.linspace(0, tf, nTimesteps - 1)):
+    for ii, tt in enumerate(np.linspace(0, tf, N_TIMESTEPS - 1)):
         code = 0
+
         if round(tt, 4) % 1 < dt:
-            print("Time: {:.1f} sec".format(tt))
+            print(f"Time: {tt:.1f} sec")
 
         if round(tt, 4) % 5 < dt and tt > 0:
             for aa, agent in enumerate(decentralized_agents):
                 agent.save_data(aa)
-            print("Time: {:.1f} sec: Intermediate Save".format(tt))
+
+            print("Intermediate Save")
 
         # Compute inputs for centralized agents
         if centralized_agents is not None:
@@ -75,7 +80,7 @@ def simulate(tf: float, dt: float, vehicle: str, level: str, situation: str) -> 
             broken = True
             break
 
-        if np.sum(complete) == nAgents:
+        if np.sum(complete) == N_AGENTS:
             break
 
     # Save data

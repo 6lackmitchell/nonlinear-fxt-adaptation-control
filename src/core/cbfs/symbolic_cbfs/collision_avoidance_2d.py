@@ -2,7 +2,7 @@ import builtins
 import numpy as np
 import symengine as se
 from importlib import import_module
-from core.controllers.cbfs.cbf_wrappers import (
+from core.cbfs.cbf_wrappers import (
     symbolic_cbf_wrapper_multiagent,
     symbolic_cbf_wrapper_singleagent,
 )
@@ -10,17 +10,12 @@ from core.mathematics.symbolic_functions import ramp
 
 vehicle = builtins.PROBLEM_CONFIG["vehicle"]
 control_level = builtins.PROBLEM_CONFIG["control_level"]
-mod = vehicle + "." + control_level + ".models"
+mod = "models." + vehicle + "." + control_level + ".system"
 
 # Programmatic import
-try:
-    module = import_module(mod)
-    globals().update({"f": getattr(module, "f")})
-    # globals().update({'sigma': getattr(module, 'sigma')})
-    globals().update({"ss": getattr(module, "sym_state")})
-except ModuleNotFoundError as e:
-    print("No module named '{}' -- exiting.".format(mod))
-    raise e
+module = import_module(mod)
+globals().update({"f": getattr(module, "f")})
+globals().update({"ss": getattr(module, "xs")})
 
 # Defining Physical Params
 R = 0.5

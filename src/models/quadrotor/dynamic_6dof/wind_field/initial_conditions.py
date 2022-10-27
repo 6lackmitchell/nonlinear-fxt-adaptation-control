@@ -1,18 +1,52 @@
+""""
+initial_conditions.py
+
+Specifies the initial conditions for the quadrotor model in the
+wind_field situation.
+
+"""
 import numpy as np
 
+# Define initial states
+ei = np.array([0.0])
+ni = np.array([0.0])
+di = np.array([0.0])
+ui = np.array([0.0])
+vi = np.array([0.0])
+wi = np.array([0.0])
+phii = np.array([0.0])
+thetai = np.array([0.0])
+psii = np.array([0.0])
+pi = np.array([0.0])
+qi = np.array([0.0])
+ri = np.array([0.0])
 
-xg = np.array([-2.0, 0.0, 1.75, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
-yg = np.array([8.0, 9.0, 8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+# Construct initial state vector
+z0 = np.array(
+    [
+        np.array(
+            [
+                ei[aa],
+                ni[aa],
+                di[aa],
+                ui[aa],
+                vi[aa],
+                wi[aa],
+                phii[aa],
+                thetai[aa],
+                psii[aa],
+                pi[aa],
+                qi[aa],
+                ri[aa],
+            ]
+        )
+        for aa in range(len(ei))
+    ]
+)
 
-# xi = np.array([-2.0, 0.0, 2.0, -9.0, -11.0, -16.0, -18.0, -23.0, -25.0])
-# yi = np.array([-np.sqrt(96), -12, -np.sqrt(100 - 1.75**2), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-xi = np.array([-2.0, 0.0, 2.0, -9.0, -11.0, -16.0, -18.0, -23.0, -25.0])
-yi = np.array([-9.0, -13, -10, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-psii = np.array([np.pi + np.arctan2(yi[ii], xi[ii]) for ii in range(len(xi))])
-vi = np.array([0.0 for ii in range(3)] + [1.0 for ii in range(6)])
-z0 = np.array([np.array([xi[aa], yi[aa], psii[aa], vi[aa], 0.0]) for aa in range(len(xi))])
+# Initial control vector
+u0 = np.array([0.0, 0.0, 0.0, 0.0])
 
-
-u0 = np.array([0.0, 0.0])
-
-nAgents, nStates = z0.shape
+# Get agent, state, and control dimensions
+N_AGENTS, N_STATES = z0.shape
+N_CONTROLS = len(u0)

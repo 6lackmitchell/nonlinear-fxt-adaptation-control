@@ -1,15 +1,11 @@
-"""__init__.py
-
-Initializer for the cbfs module. Imports parameters and methods according to
-the situation specified in the main executable.
-
-"""
 import builtins
 from importlib import import_module
 
-situation = builtins.PROBLEM_CONFIG["situation"]
-mod = f"core.cbfs.__{situation.replace('_','')}__"
+vehicle = builtins.PROBLEM_CONFIG["vehicle"]
+control_level = builtins.PROBLEM_CONFIG["control_level"]
+mod = "models." + vehicle + "." + control_level
 
+# Programmatic version of 'from control_level import *'
 module = import_module(mod)
 globals().update(
     {n: getattr(module, n) for n in module.__all__}

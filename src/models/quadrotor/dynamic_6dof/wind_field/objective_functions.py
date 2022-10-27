@@ -1,25 +1,70 @@
+"""objective_functions.py
+
+Defines methods for objective functions to be used in
+quadratic program based control laws.
+
+Contains:
+    objective_minimum_deviation
+    objective_minimum_norm
+
+"""
+
+from typing import Tuple
+from nptyping import NDArray
 import numpy as np
-from .physical_params import u_max
+from .physical_params import U_MAX
 
-q0 = 1.0 / u_max[0]**2
-q1 = 100.0 / u_max[1]**2
-q2 = 2 * q0
+q0 = np.array([1 / U_MAX[ii] ** 2 for ii in range(len(U_MAX))])
+q1 = 2 * np.max(q0)
 
 
-def objective_accel_and_steering(u_nom):
-    if len(u_nom) % 2 == 0:
-        Q = np.diag(int(len(u_nom) / 2) * [q0, q1])
+def objective_minimum_deviation(u_nom: NDArray) -> Tuple[NDArray, NDArray]:
+    """Defines a minimum-deviation objective function that is quadratic in the
+    decision variables, of the form
+
+    J = 1 / 2 * (x - x0).T @ Q @ (x - x0) + p @ (x - x0)
+
+    where x represents the decision variable and x0 is some desired solution.
+
+    Arguments:
+        u_nom: nominal control input
+
+    Returns:
+        Q: matrix for quadratic term
+        p: vector for linear term
+
+    """
+    if len(u_nom) % len(U_MAX) == 0:
+        Q = 1 / 2 * np.diag(q0)
     else:
-        Q = np.diag(int(len(u_nom) / 2) * [q0, q1] + [q2])
-
-    Q = 1 / 2 * Q
+        Q = 1 / 2 * np.diag(list(q0) + [q1])
 
     p = -Q @ u_nom
+
     return Q, p
 
 
-def objective_accel_only(u_nom, agent):
-    Q = q0 * np.eye(len(u_nom))
-    Q[agent, agent] = Q[agent, agent] / 50.0
-    p = -q0 * u_nom
-    return 1 / 2 * Q, p
+def objective_minimum_norm(n_vars: int) -> Tuple[NDArray, NDArray]:
+    """Defines a minimum-norm objective function that is quadratic in the
+    decision variables, of the form
+
+    J = 1 / 2 * x.T @ Q @ x + p @ x
+
+    where x represents the decision variable.
+
+    Arguments:
+        n_vars: number of decision variables
+
+    Returns:
+        Q: matrix for quadratic term
+        p: vector for linear term
+
+    """
+    if n_vars % len(U_MAX) == 0:
+        Q = 1 / 2 * np.diag(q0)
+    else:
+        Q = 1 / 2 * np.diag(list(q0) + [q1])
+
+    p = np.zeros((Q.shape[0],))
+
+    return Q, p
