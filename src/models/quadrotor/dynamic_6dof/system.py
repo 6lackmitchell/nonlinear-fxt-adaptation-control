@@ -1,7 +1,15 @@
+"""system.py
+
+Defines functions describing the system dynamics for the quadrotor
+dynamic 6 degree-of-freedom model.
+
+"""
+import builtins
+from importlib import import_module
 import symengine as se
 import numpy as np
-import builtins
 from nptyping import NDArray
+
 from core.dynamics_wrappers import (
     dyn_wrapper,
     control_affine_system_deterministic,
@@ -12,19 +20,21 @@ from core.dynamics_wrappers import (
 vehicle = builtins.PROBLEM_CONFIG["vehicle"]
 control_level = builtins.PROBLEM_CONFIG["control_level"]
 situation = builtins.PROBLEM_CONFIG["situation"]
-mod = vehicle + "." + control_level + "." + situation
-ar_max = getattr(__import__(mod + ".physical_params", fromlist=["ar_max"]), "ar_max")
-w_max = getattr(__import__(mod + ".physical_params", fromlist=["w_max"]), "w_max")
-G = getattr(__import__(mod + ".physical_params", fromlist=["G"]), "G")
-M = getattr(__import__(mod + ".physical_params", fromlist=["M"]), "M")
-M0 = getattr(__import__(mod + ".physical_params", fromlist=["M0"]), "M0")
-Jx = getattr(__import__(mod + ".physical_params", fromlist=["Jx"]), "Jx")
-Jy = getattr(__import__(mod + ".physical_params", fromlist=["Jy"]), "Jy")
-Jz = getattr(__import__(mod + ".physical_params", fromlist=["Jz"]), "Jz")
-Jx0 = getattr(__import__(mod + ".physical_params", fromlist=["Jx0"]), "Jx0")
-Jy0 = getattr(__import__(mod + ".physical_params", fromlist=["Jy0"]), "Jy0")
-Jz0 = getattr(__import__(mod + ".physical_params", fromlist=["Jz0"]), "Jz0")
-dt = getattr(__import__(mod + ".timing_params", fromlist=["dt"]), "dt")
+mod = "models." + vehicle + "." + control_level + "." + situation
+
+# Programmatic version of 'from mod import *'
+module = import_module(mod + ".physical_params")
+globals().update(
+    {n: getattr(module, n) for n in module.__all__}
+    if hasattr(module, "__all__")
+    else {k: v for (k, v) in module.__dict__.items() if not k.startswith("_")}
+)
+module = import_module(mod + ".timing_params")
+globals().update(
+    {n: getattr(module, n) for n in module.__all__}
+    if hasattr(module, "__all__")
+    else {k: v for (k, v) in module.__dict__.items() if not k.startswith("_")}
+)
 
 # Define Symbolic State
 xs = se.symbols(["n", "e", "d", "u", "v", "w", "phi", "theta", "psi", "p", "q", "r"])
@@ -38,18 +48,18 @@ f_symbolic = se.DenseMatrix(
         xs[3] * (se.cos(xs[7]) * se.sin(xs[8]))
         + xs[4] * (se.sin(xs[6]) * se.sin(xs[7]) * se.sin(xs[8]) + se.cos(xs[6]) * se.cos(xs[8]))
         + xs[5] * (se.cos(xs[6]) * se.sin(xs[7]) * se.sin(xs[8]) - se.sin(xs[6]) * se.cos(xs[8])),
-        -xs[3] * (se.sin(xs[7]))
-        + xs[4] * (se.sin(xs[6]) * se.cos(xs[7]))
-        + xs[5] * (se.cos(xs[6]) * se.cos(xs[7])),
-        xs[11] * xs[4] - xs[10] * xs[5] - G * se.sin(xs[7]),
-        xs[9] * xs[5] - xs[11] * xs[3] + G * se.cos(xs[7]) * se.sin(xs[6]),
-        xs[10] * xs[3] - xs[9] * xs[4] + G * se.cos(xs[7]) * se.cos(xs[6]),
+        xs[3] * (se.sin(xs[7]))
+        - xs[4] * (se.sin(xs[6]) * se.cos(xs[7]))
+        - xs[5] * (se.cos(xs[6]) * se.cos(xs[7])),
+        xs[11] * xs[4] - xs[10] * xs[5] - GRAVITY * se.sin(xs[7]),
+        xs[9] * xs[5] - xs[11] * xs[3] + GRAVITY * se.cos(xs[7]) * se.sin(xs[6]),
+        xs[10] * xs[3] - xs[9] * xs[4] + GRAVITY * se.cos(xs[7]) * se.cos(xs[6]),
         xs[9] + xs[10] * se.sin(xs[6]) * se.tan(xs[7]) + xs[11] * se.cos(xs[6]) * se.tan(xs[7]),
         xs[10] * se.cos(xs[6]) - xs[11] * se.sin(xs[6]),
         xs[10] * se.sin(xs[6]) / se.cos(xs[7]) + xs[11] * se.cos(xs[6]) / se.cos(xs[7]),
-        xs[10] * xs[11] * ((Jy - Jz) / Jx),
-        xs[9] * xs[11] * ((Jz - Jx) / Jy),
-        xs[9] * xs[10] * ((Jx - Jy) / Jz),
+        xs[10] * xs[11] * ((JY - JZ) / JX),
+        xs[9] * xs[11] * ((JZ - JX) / JY),
+        xs[9] * xs[10] * ((JX - JY) / JZ),
     ]
 )
 f_residual_symbolic = se.DenseMatrix(
@@ -63,9 +73,9 @@ f_residual_symbolic = se.DenseMatrix(
         0,
         0,
         0,
-        xs[10] * xs[11] * ((Jy0 - Jz0) / Jx0 - (Jy - Jz) / Jx),
-        xs[9] * xs[11] * ((Jz0 - Jx0) / Jy0 - (Jz - Jx) / Jy),
-        xs[9] * xs[10] * ((Jx0 - Jy0) / Jz0 - (Jx - Jy) / Jz),
+        xs[10] * xs[11] * ((JY0 - JZ0) / JX0 - (JY - JZ) / JX),
+        xs[9] * xs[11] * ((JZ0 - JX0) / JY0 - (JZ - JX) / JY),
+        xs[9] * xs[10] * ((JX0 - JY0) / JZ0 - (JX - JY) / JZ),
     ]
 )
 g_symbolic = se.DenseMatrix(
@@ -75,13 +85,13 @@ g_symbolic = se.DenseMatrix(
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [-1 / M, 0, 0, 0],
+        [-1 / MASS, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [0, 1 / Jx, 0, 0],
-        [0, 0, 1 / Jy, 0],
-        [0, 0, 0, 1 / Jz],
+        [0, 1 / JX, 0, 0],
+        [0, 0, 1 / JY, 0],
+        [0, 0, 0, 1 / JZ],
     ]
 )
 g_residual_symbolic = se.DenseMatrix(
@@ -91,13 +101,13 @@ g_residual_symbolic = se.DenseMatrix(
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [-(1 / M0 - 1 / M), 0, 0, 0],
+        [-(1 / MASS0 - 1 / MASS), 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [0, (1 / Jx0 - 1 / Jx), 0, 0],
-        [0, 0, (1 / Jy0 - 1 / Jy), 0],
-        [0, 0, 0, (1 / Jz0 - 1 / Jz)],
+        [0, (1 / JX0 - 1 / JX), 0, 0],
+        [0, 0, (1 / JY0 - 1 / JY), 0],
+        [0, 0, 0, (1 / JZ0 - 1 / JZ)],
     ]
 )
 
