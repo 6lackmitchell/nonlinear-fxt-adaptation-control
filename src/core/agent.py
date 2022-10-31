@@ -88,6 +88,9 @@ class Agent:
             self.consolidated_cbf_trajectory = np.zeros((self.nTimesteps,))
             self.k_gains_trajectory = np.zeros((self.nTimesteps,))
 
+        if hasattr(self.controller, "function_estimation_error"):
+            self.function_estimation_error = np.zeros((self.nTimesteps, x0.shape[0]))
+
         # Save data object -- auto-updating since defined by reference
         self.data = {
             "x": self.x_trajectory,
@@ -96,6 +99,7 @@ class Agent:
             "cbf": self.cbf_trajectory,
             "ccbf": self.consolidated_cbf_trajectory,
             "kgains": self.k_gains_trajectory,
+            "f_error": self.function_estimation_error,
             "ii": self.t,
         }
 
@@ -126,6 +130,10 @@ class Agent:
             self.consolidated_cbf_trajectory[self.timestep] = self.controller.c_cbf
         if hasattr(self.controller, "k_gains"):
             self.k_gains_trajectory[self.timestep, :] = self.controller.k_gains
+        if hasattr(self.controller, "function_estimation_error"):
+            self.function_estimation_error[
+                self.timestep, :
+            ] = self.controller.function_estimation_error
 
         if misc is not None:
             print(misc)

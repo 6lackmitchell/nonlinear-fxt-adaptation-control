@@ -140,6 +140,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.U_koopman = np.eye(len(example_basis_fcns))
         self.U_koopman_last = np.eye(len(example_basis_fcns))
         self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
+        self.function_estimation_error = np.zeros((self.n_states,))
 
         # Gains -- a = 0 becomes finite-time
         self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-3 * np.eye(self.n_params)}
@@ -196,6 +197,8 @@ class FxtAdaptationCbfQpController(CbfQpController):
             residual_dynamics = self.compute_unknown_function()
             function_estimation_error = f_residual(self.z_ego) - residual_dynamics
             self.nominal_controller.residual_dynamics = residual_dynamics
+
+            self.function_estimation_error = function_estimation_error
             # print(f"Residual Dynamics: {residual_dynamics}")
 
         # Update last measured state
