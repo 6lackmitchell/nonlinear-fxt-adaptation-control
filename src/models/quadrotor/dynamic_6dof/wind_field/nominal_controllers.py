@@ -44,6 +44,7 @@ class CascadedTrackingController(Controller):
 
         self.ego_id = ego_id
         self.complete = False
+        self.residual_dynamics = np.zeros((12,))  #! Lazy coding -- need to fix!
 
     def _compute_control(self, t: float, z: NDArray) -> Tuple[int, str]:
         """Computes the input using the cascaded tracking controller for the
@@ -139,9 +140,9 @@ class CascadedTrackingController(Controller):
             R13dot_c = -(rotation[0, 2] - R13_c) / (tc_R)
             R23dot_c = -(rotation[1, 2] - R23_c) / (tc_R)
 
-            p_c = -R13dot_c * rotation[0, 1] - R23dot_c * rotation[1, 1]
-            q_c = R13dot_c * rotation[0, 0] + R23dot_c * rotation[1, 2]
-            r_c = 0  # -k_r * (ze[8] - theta + np.pi/2)
+            p_c = -R13dot_c * rotation[0, 1] - R23dot_c * rotation[1, 1] - self.residual_dynamics[9]
+            q_c = R13dot_c * rotation[0, 0] + R23dot_c * rotation[1, 2] - self.residual_dynamics[10]
+            r_c = 0 - self.residual_dynamics[11]  # -k_r * (ze[8] - theta + np.pi/2)
 
             pitch_moment = (
                 -self.CONTROL_GAINS["k_phi"] * (ze[9] - p_c) * JX - (JY - JZ) * ze[10] * ze[11]
@@ -176,7 +177,9 @@ class CascadedTrackingController(Controller):
         tc_z = tc
 
         # Compute velocities in inertial frame
-        xdot, ydot, zdot = rotation @ ze[3:6]  # + regressor(state)[0:3] @ thetaHat
+        xdot, ydot, zdot = (
+            rotation @ ze[3:6] + self.residual_dynamics[0:3]
+        )  # + regressor(state)[0:3] @ thetaHat
 
         # Setpoint -- take off
         x_c = ze[0]
@@ -202,14 +205,20 @@ class CascadedTrackingController(Controller):
             xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
             yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
 
-        xddot = (
-            -2 * dr / tc_x * (xdot - xdot_c) - (ze[0] - x_c) / tc_x**2 + xddot_c
-        )  # - rotation[0] @ regressor(state)[3:6] @ thetaHat
-        yddot = (
-            -2 * dr / tc_y * (ydot - ydot_c) - (ze[1] - y_c) / tc_y**2 + yddot_c
-        )  # - rotation[1] @ regressor(state)[3:6] @ thetaHat
-        zddot = (
-            -2 * dr / tc_z * (zdot - zdot_c) - (ze[2] - z_c) / tc_z**2 + zddot_c
-        )  # - rotation[2] @ regressor(state)[3:6] @ thetaHat
+        xddot = (-2 * dr / tc_x * (xdot - xdot_c) - (ze[0] - x_c) / tc_x**2 + xddot_c) - rotation[
+            0
+        ] @ self.residual_dynamics[
+            3:6
+        ]  # - rotation[0] @ regressor(state)[3:6] @ thetaHat
+        yddot = (-2 * dr / tc_y * (ydot - ydot_c) - (ze[1] - y_c) / tc_y**2 + yddot_c) - rotation[
+            1
+        ] @ self.residual_dynamics[
+            3:6
+        ]  # - rotation[1] @ regressor(state)[3:6] @ thetaHat
+        zddot = (-2 * dr / tc_z * (zdot - zdot_c) - (ze[2] - z_c) / tc_z**2 + zddot_c) - rotation[
+            2
+        ] @ self.residual_dynamics[
+            3:6
+        ]  # - rotation[2] @ regressor(state)[3:6] @ thetaHat
 
         return xddot, yddot, zddot

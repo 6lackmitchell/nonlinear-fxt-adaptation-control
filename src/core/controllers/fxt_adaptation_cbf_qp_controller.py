@@ -30,6 +30,10 @@ module = import_module(mod)
 globals().update({"f": getattr(module, "f")})
 globals().update({"g": getattr(module, "g")})
 globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
+globals().update({"f_residual": getattr(module, "f_residual")})
+
+# BASIS SCALE FACTOR
+BASIS_SCALE_FACTOR = 5.0
 
 
 def basis_functions(z: NDArray, min_len: int) -> NDArray:
@@ -49,32 +53,35 @@ def basis_functions(z: NDArray, min_len: int) -> NDArray:
     if len(z) < min_len:
         z = np.concatenate([z, np.zeros((min_len - len(z),))])
 
+    z = z / BASIS_SCALE_FACTOR
+
     # Monomial basis functions
-    psi_0nn = z  # 1st Order
-    psi_1nn = z**2  # 2nd order
-    psi_2nn = z**3  # 3rd Order
-    psi_3nn = z**4  # 4th Order
-    psi_4nn = z**5  # 5th Order
+    psi_1nn = z * BASIS_SCALE_FACTOR  # 1st Order
+    psi_2nn = z**2  # 2nd order
+    psi_3nn = z**3  # 3rd Order
+    # psi_4nn = z**4  # 4th Order
+    # psi_5nn = z**5  # 5th Order
 
     # Radial Basis Functions (RBFs)
     k = 10.0  # Multiplier for RBF
     Q = 1 / k * np.eye(len(z))  # Exponential gain for RBF
 
-    psi_5n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
-    psi_6nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
+    psi_6n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
+    psi_7nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
 
     basis_funcs = np.hstack(
         [
-            psi_0nn,
             psi_1nn,
             psi_2nn,
             psi_3nn,
-            psi_4nn,
-            psi_5n1,
-            psi_6nn,
+            # psi_4nn,
+            # psi_5nn,
+            # psi_6n1,
+            # psi_7nn,
         ]
     )
 
+    # return psi_1nn
     return basis_funcs
 
 
@@ -124,17 +131,18 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.n_states = 12  #! Lazy coding, need to fix
 
         # Unknown parameter properties
-        example_basis_fcns = basis_functions(
-            np.zeros((self.n_states + len(u_max),)), self.n_states + len(u_max)
-        )
+        example_basis_fcns = basis_functions(np.zeros((self.n_states,)), self.n_states)
         self.n_params = len(example_basis_fcns) ** 2
-        self.theta = np.zeros((self.n_params,))
+        self.theta = np.eye(len(example_basis_fcns)).reshape((self.n_params,))
         self.theta_dot = np.zeros((self.n_params,))
         self.eta0 = 100.0 * np.ones((self.n_params,))  #! Lazy coding -- needs to be fixed
         self.M = np.zeros((len(example_basis_fcns), self.n_params))
+        self.U_koopman = np.eye(len(example_basis_fcns))
+        self.U_koopman_last = np.eye(len(example_basis_fcns))
+        self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
 
-        # Gains
-        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": np.eye(self.n_params)}
+        # Gains -- a = 0 becomes finite-time
+        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-3 * np.eye(self.n_params)}
 
         # Miscellaneous parameters
         self.safety = True
@@ -185,6 +193,10 @@ class FxtAdaptationCbfQpController(CbfQpController):
         # Update Parameter Estimates
         if t > 0:
             theta, theta_dot = self.update_parameter_estimates()
+            residual_dynamics = self.compute_unknown_function()
+            function_estimation_error = f_residual(self.z_ego) - residual_dynamics
+            self.nominal_controller.residual_dynamics = residual_dynamics
+            # print(f"Residual Dynamics: {residual_dynamics}")
 
         # Update last measured state
         self.z_ego_last = self.z_ego
@@ -430,10 +442,10 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         # Update theta parameters according to first-order forward-Euler
         self.theta = self.theta + self.theta_dot * self._dt
+        self.theta[abs(self.theta) < 1e-6] = 0  # Step used in Mauroy et al.
 
         return self.theta, self.theta_dot
 
-    #! TO DO: Implement measurements as outputs
     def compute_theta_dot(self) -> NDArray:
         """Computes the time-derivative of the Koopman parameters according to
         the following parameter update law:
@@ -451,7 +463,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         # Generate Px and Py from input/output data
-        px = self.compute_basis_functions(np.concatenate([self.z_ego, self.u]))
+        px = self.compute_basis_functions(self.z_ego)
         py = self.compute_basis_functions(self.outputs)
 
         # Compute matrix M and vector v for adaptation law
@@ -466,7 +478,94 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         theta_dot = G @ self.M.T @ v * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
 
+        # Check for unbounded parameters
+        # print(f"Max Theta: {np.max(self.theta):.2f}")
+        if np.max(self.theta) > 1e9:
+            print(self.theta[self.theta > 1e9])
+
         return theta_dot
+
+    def compute_unknown_function(self) -> NDArray:
+        """Computes the approximate infinitesimal generator L of the
+        Koopman Operator U.
+
+        Arguments
+            TBD
+
+        Returns
+            unknown_f_estimate: estimated unknown nonlinear function
+
+        """
+        z = self.z_ego
+        unknown_f_estimate = (
+            self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
+        )
+
+        return unknown_f_estimate
+
+    def compute_basis_functions(self, z: NDArray) -> NDArray:
+        """Computes the values of the basis functions evaluated at the current
+        state and control values. Returns the (b x 1) vector of basis function
+        values.
+
+        Arguments
+            z: input vector (may be states and controls or outputs)
+
+        Returns
+            basis_functions: vector of values of basis functions
+
+        """
+        return basis_functions(z, len(self.z_ego))
+
+    def get_koopman_matrix(self) -> NDArray:
+        """Retrieves the (approximated) Koopman matrix from the parameter
+        estimates theta.
+
+        Arguments
+            None
+
+        Returns
+            U: (approximate) Koopman operator
+
+        """
+        dim_U = self.M.shape[0]
+        self.U_koopman = self.theta.reshape((dim_U, dim_U)).T
+
+        return self.U_koopman
+
+    def compute_koopman_generator(self) -> NDArray:
+        """Computes the approximate infinitesimal generator L of the
+        Koopman Operator U.
+
+        Arguments
+            TBD
+
+        Returns
+            L: (approximate) infinitesimal generator of Koopman operator
+
+        """
+        U = self.get_koopman_matrix()
+        rank_U = np.linalg.matrix_rank(U)
+        min_eig_U = np.min(np.linalg.eig(U)[0])
+
+        # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
+        if rank_U < U.shape[0] or min_eig_U < 0:
+            pass
+        else:
+            # # Discrete-Sampling Implementation
+            # self.L_generator = logm(U) / self._dt
+
+            # Numerically Differentiate (Continuous-Time Approximation)
+            self.L_generator = (logm(U) - logm(self.U_koopman_last)) / self._dt
+            self.U_koopman_last = U
+
+        # *******************
+        self.L_generator[abs(self.L_generator) < 1e-6] = 0
+        # This step was introduced by Mauroy et al.
+        # in line 150 of (https://github.com/AlexMauroy/Koopman-identification/blob/master/main/matlab/lifting_ident_main.m)
+        # *******************
+
+        return self.L_generator
 
     def compute_time_varying_cbf_term(self, dhdx: NDArray) -> float:
         """Computes the contribution of the time-varying parameters in the
@@ -546,71 +645,6 @@ class FxtAdaptationCbfQpController(CbfQpController):
         )
 
         return eta, etadot
-
-    def compute_basis_functions(self, z: NDArray) -> NDArray:
-        """Computes the values of the basis functions evaluated at the current
-        state and control values. Returns the (b x 1) vector of basis function
-        values.
-
-        Arguments
-            z: input vector (may be states and controls or outputs)
-
-        Returns
-            basis_functions: vector of values of basis functions
-
-        """
-        return basis_functions(z, len(self.z_ego) + len(self.u))
-
-    def get_koopman_matrix(self) -> NDArray:
-        """Retrieves the (approximated) Koopman matrix from the parameter
-        estimates theta.
-
-        Arguments
-            None
-
-        Returns
-            U: (approximate) Koopman operator
-
-        """
-        dim_U = int(np.sqrt(len(self.theta)))
-        U = self.theta.reshape((dim_U, dim_U)).T
-
-        return U
-
-    def compute_koopman_generator(self) -> NDArray:
-        """Computes the approximate infinitesimal generator L of the
-        Koopman Operator U.
-
-        Arguments
-            TBD
-
-        Returns
-            L: (approximate) infinitesimal generator of Koopman operator
-
-        """
-        U = self.get_koopman_matrix()
-        L = 1 / self._dt * logm(U)
-
-        return L
-
-    #! TO DO: implement n_states as class variable
-    def compute_unknown_function(self) -> NDArray:
-        """Computes the approximate infinitesimal generator L of the
-        Koopman Operator U.
-
-        Arguments
-            TBD
-
-        Returns
-            unknown_f_estimate: estimated unknown nonlinear function
-
-        """
-        z = np.concatenate([self.z_ego, self.u])
-        unknown_f_estimate = (
-            self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
-        )
-
-        return unknown_f_estimate
 
     @property
     def eta(self):

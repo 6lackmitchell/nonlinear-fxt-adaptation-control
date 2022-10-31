@@ -111,7 +111,10 @@ class Agent:
         """
         misc = None
 
-        self.u, code, status = self.controller.compute_control(self.t, full_state)
+        try:
+            self.u, code, status = self.controller.compute_control(self.t, full_state)
+        except Exception as e:
+            return 0, e
 
         # Update Control and CBF Trajectories
         self.u_trajectory[self.timestep, :] = self.controller.u
