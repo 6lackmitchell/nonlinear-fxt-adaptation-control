@@ -30,4 +30,5 @@ def visualize(vehicle: str, level: str, situation: str, root_dir: str) -> bool:
     module = importlib.import_module(mod)
     globals().update({"replay": getattr(module, "replay")})
 
-    return replay(filepath)
+    filename = None  # "baseline_no_estimation.pkl"
+    return replay(filepath, filename)

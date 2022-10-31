@@ -11,7 +11,7 @@ Methods:
 import os
 import glob
 import pickle
-from typing import List
+from typing import List, Optional
 from nptyping import NDArray
 import numpy as np
 
@@ -63,7 +63,7 @@ DASH = [3, 2]
 COLOR_IDX = np.array(range(0, 2 * N_AGENTS)).reshape(N_AGENTS, 2)
 
 
-def replay(filepath: str) -> List[matplotlib.figure.Figure]:
+def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure.Figure]:
     """Replays the trajectory data from various simulated quantities in the
     quadrotor/dynamic_6dof/wind_field situation.
 
@@ -75,10 +75,13 @@ def replay(filepath: str) -> List[matplotlib.figure.Figure]:
 
     """
     # Get the file
-    ftype = r"*.pkl"
-    files = glob.glob(filepath + ftype)
-    files.sort(key=os.path.getmtime)
-    filename = files[-1]
+    if fname is None:
+        ftype = r"*.pkl"
+        files = glob.glob(filepath + ftype)
+        files.sort(key=os.path.getmtime)
+        filename = files[-1]
+    else:
+        filename = filepath + fname
 
     # Load data
     with open(filename, "rb") as f:
@@ -88,15 +91,18 @@ def replay(filepath: str) -> List[matplotlib.figure.Figure]:
         u = np.array([data[a]["u"] for a in data.keys()])
         k = np.array([data[a]["kgains"] if a < 3 else None for a in data.keys()][0:3])
         u0 = np.array([data[a]["u0"] for a in data.keys()])
+        f_err = np.array([data[a]["f_error"] for a in data.keys()])
         ii = int(data[0]["ii"] / dt) - 1
 
     # Compute derived quantities
     tf = ii * dt
     t = np.linspace(dt, tf, int(tf / dt))
 
+    t = t[:-100]
     state_figs = generate_state_figures(t, x)
+    estimation_figs = generate_estimation_figures(t, f_err)
 
-    return state_figs
+    return state_figs + estimation_figs
 
 
 def generate_state_figures(t: NDArray, x: NDArray) -> List:
@@ -130,6 +136,35 @@ def generate_state_figures(t: NDArray, x: NDArray) -> List:
 
     # Figure list
     figs = [fig, fig_xy]
+
+    return figs
+
+
+def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
+    """Generates static figures for plotting the state trajectories.
+
+    Arguments:
+        t: time vector
+        f_err: time history of the unknown function estimation error
+
+    Returns:
+        figs: list to handles of figure objects
+
+    """
+
+    # Set up figure
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111)
+    set_edges_black(ax)
+    ax.plot(t, f_err[0, : len(t), 3])
+    ax.plot(t, f_err[0, : len(t), 4])
+    ax.plot(t, f_err[0, : len(t), 5])
+    ax.plot(t, f_err[0, : len(t), 9])
+    ax.plot(t, f_err[0, : len(t), 10])
+    ax.plot(t, f_err[0, : len(t), 11])
+
+    # Figure list
+    figs = [fig]
 
     return figs
 

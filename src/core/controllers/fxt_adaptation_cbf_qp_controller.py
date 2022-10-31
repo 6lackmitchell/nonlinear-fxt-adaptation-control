@@ -32,9 +32,6 @@ globals().update({"g": getattr(module, "g")})
 globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
 globals().update({"f_residual": getattr(module, "f_residual")})
 
-# BASIS SCALE FACTOR
-BASIS_SCALE_FACTOR = 5.0
-
 
 def basis_functions(z: NDArray, min_len: int) -> NDArray:
     """Computes the values of the basis functions evaluated at the current
@@ -53,30 +50,32 @@ def basis_functions(z: NDArray, min_len: int) -> NDArray:
     if len(z) < min_len:
         z = np.concatenate([z, np.zeros((min_len - len(z),))])
 
-    z = z / BASIS_SCALE_FACTOR
+    normalization_factor = np.max(abs(z))
+    z = z / normalization_factor
 
     # Monomial basis functions
-    psi_1nn = z * BASIS_SCALE_FACTOR  # 1st Order
+    psi_1nn = z * normalization_factor  # 1st Order
     psi_2nn = z**2  # 2nd order
     psi_3nn = z**3  # 3rd Order
-    # psi_4nn = z**4  # 4th Order
-    # psi_5nn = z**5  # 5th Order
+    psi_4nn = z**3 + 2 * z**2 - 3 * z - 1  # Polynomial
+    psi_5nn = -(z**3) - 5 * z**2 + 4 * z + 2  # Polynomial
+    psi_6nn = 2 * z**3 - 2 * z**2 + 2 * z - 2  # Polynomial
 
-    # Radial Basis Functions (RBFs)
-    k = 10.0  # Multiplier for RBF
-    Q = 1 / k * np.eye(len(z))  # Exponential gain for RBF
+    # # Radial Basis Functions (RBFs)
+    # k = 1.0  # Multiplier for RBF
+    # Q = 1 / k * np.eye(len(z))  # Exponential gain for RBF
 
-    psi_6n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
-    psi_7nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
+    # psi_6n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
+    # psi_7nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
 
     basis_funcs = np.hstack(
         [
             psi_1nn,
             psi_2nn,
             psi_3nn,
-            # psi_4nn,
-            # psi_5nn,
-            # psi_6n1,
+            psi_4nn,
+            psi_5nn,
+            psi_6nn,
             # psi_7nn,
         ]
     )
@@ -143,7 +142,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.function_estimation_error = np.zeros((self.n_states,))
 
         # Gains -- a = 0 becomes finite-time
-        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-3 * np.eye(self.n_params)}
+        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-4 * np.eye(self.n_params)}
 
         # Miscellaneous parameters
         self.safety = True
@@ -553,7 +552,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
         if rank_U < U.shape[0] or min_eig_U < 0:
-            pass
+            raise ValueError("Linearly Dependent Koopman Matrix --> No LogM Generator!")
         else:
             # # Discrete-Sampling Implementation
             # self.L_generator = logm(U) / self._dt
