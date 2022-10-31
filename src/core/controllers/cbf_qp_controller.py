@@ -133,8 +133,7 @@ class CbfQpController(Controller):
                 code = sol["code"]
                 status = sol["status"]
                 self.assign_control(sol, ego)
-                if abs(self.u[0]) > 1e-3:
-                    pass
+
             else:
                 status = "Divide by Zero"
                 self.u = np.zeros((self.n_controls,))

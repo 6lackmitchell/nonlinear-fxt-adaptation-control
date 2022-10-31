@@ -10,15 +10,12 @@ import builtins
 from typing import Callable, List, Tuple
 from importlib import import_module
 import numpy as np
-import numdifftools as nd
 from nptyping import NDArray
 from scipy.linalg import block_diag, null_space, logm
 
 # from core.cbfs.cbf import Cbf
 from core.controllers.cbf_qp_controller import CbfQpController
 from core.controllers.controller import Controller
-
-# from core.solve_cvxopt import solve_qp_cvxopt
 
 vehicle = builtins.PROBLEM_CONFIG["vehicle"]
 control_level = builtins.PROBLEM_CONFIG["control_level"]
@@ -50,7 +47,7 @@ def basis_functions(z: NDArray, min_len: int) -> NDArray:
     if len(z) < min_len:
         z = np.concatenate([z, np.zeros((min_len - len(z),))])
 
-    normalization_factor = np.max(abs(z))
+    normalization_factor = 1 if np.max(abs(z)) == 0 else np.max(abs(z))
     z = z / normalization_factor
 
     # Monomial basis functions
@@ -110,6 +107,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self,
         u_max: List,
         nAgents: int,
+        nStates: int,
         objective_function: Callable,
         nominal_controller: Controller,
         cbfs_individual: List,
@@ -126,8 +124,8 @@ class FxtAdaptationCbfQpController(CbfQpController):
             ignore,
         )
         n_cbfs = len(self.cbf_vals)
-        self.n_agents = 1  #! Lazy coding, need to fix
-        self.n_states = 12  #! Lazy coding, need to fix
+        self.n_agents = nAgents
+        self.n_states = nStates
 
         # Unknown parameter properties
         example_basis_fcns = basis_functions(np.zeros((self.n_states,)), self.n_states)
@@ -257,9 +255,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         if self.n_dec_vars > 0:
-            Au = block_diag(*(self.n_agents + self.n_dec_vars) * [self.au])[
-                : -2 * (self.n_controls - 1), : -(self.n_controls - 1)
-            ]
+            Au = block_diag(*(self.n_agents * self.n_controls + self.n_dec_vars) * [self.au])
             bu = np.append(
                 np.array(self.n_agents * [self.bu]).flatten(),
                 self.n_dec_vars * [self.max_class_k, 0],
