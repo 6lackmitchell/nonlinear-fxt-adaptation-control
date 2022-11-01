@@ -76,6 +76,7 @@ def simulate(tf: float, dt: float, vehicle: str, level: str, situation: str) -> 
             if not code:
                 broken = True
                 print("Error in Agent {}".format(aa + 1))
+                print(f"{status}")
                 break
             if hasattr(agent, "complete"):
                 if agent.complete and not complete[aa]:

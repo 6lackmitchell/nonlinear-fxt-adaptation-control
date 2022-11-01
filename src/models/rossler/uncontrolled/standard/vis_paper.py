@@ -88,17 +88,14 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
         data = pickle.load(f)
 
         x = np.array([data[a]["x"] for a in data.keys()])
-        u = np.array([data[a]["u"] for a in data.keys()])
-        k = np.array([data[a]["kgains"] if a < 3 else None for a in data.keys()][0:3])
-        u0 = np.array([data[a]["u0"] for a in data.keys()])
         f_err = np.array([data[a]["f_error"] for a in data.keys()])
         ii = int(data[0]["ii"] / dt) - 1
 
     # Compute derived quantities
     tf = ii * dt
     t = np.linspace(dt, tf, int(tf / dt))
+    # t = t[:-5000]
 
-    t = t[:-100]
     state_figs = generate_state_figures(t, x)
     estimation_figs = generate_estimation_figures(t, f_err)
 
@@ -128,14 +125,8 @@ def generate_state_figures(t: NDArray, x: NDArray) -> List:
     ax_y.plot(t, x[0, : len(t), 1])
     ax_z.plot(t, x[0, : len(t), 2])
 
-    # Set up figure
-    fig_xy = plt.figure(figsize=(10, 10))
-    ax_xy = fig_xy.add_subplot(111)
-    set_edges_black(ax_xy)
-    ax_xy.plot(x[0, : len(t), 0], x[0, : len(t), 1])
-
     # Figure list
-    figs = [fig, fig_xy]
+    figs = [fig]
 
     return figs
 
@@ -156,12 +147,9 @@ def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111)
     set_edges_black(ax)
-    ax.plot(t, f_err[0, : len(t), 3])
-    ax.plot(t, f_err[0, : len(t), 4])
-    ax.plot(t, f_err[0, : len(t), 5])
-    ax.plot(t, f_err[0, : len(t), 9])
-    ax.plot(t, f_err[0, : len(t), 10])
-    ax.plot(t, f_err[0, : len(t), 11])
+    ax.plot(t, f_err[0, : len(t), 0])
+    ax.plot(t, f_err[0, : len(t), 1])
+    ax.plot(t, f_err[0, : len(t), 2])
 
     # Figure list
     figs = [fig]
