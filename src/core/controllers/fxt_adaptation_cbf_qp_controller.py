@@ -16,6 +16,7 @@ from scipy.linalg import block_diag, null_space, logm
 # from core.cbfs.cbf import Cbf
 from core.controllers.cbf_qp_controller import CbfQpController
 from core.controllers.controller import Controller
+from core.mathematics.basis_functions import basis_functions, basis_function_gradients
 
 vehicle = builtins.PROBLEM_CONFIG["vehicle"]
 control_level = builtins.PROBLEM_CONFIG["control_level"]
@@ -30,55 +31,105 @@ globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
 globals().update({"f_residual": getattr(module, "f_residual")})
 
 
-def basis_functions(z: NDArray, min_len: int) -> NDArray:
-    """Computes the values of the basis functions evaluated at the current
-    state and control values. Returns the (b x 1) vector of basis function
-    values. May offload this to another module.
+def sigmoid(x: float or NDArray):
+    """Numerically stable implementation of the sigmoid function.
 
-    Arguments
-        z: input vector (may be states and controls or outputs)
-        min_len: minimum length of input vector
+    Arguments:
+        x: input
 
-    Returns
-        basis_funcs: vector of values of basis functions
+    Returns:
+        sigmoid(x)
 
     """
-    # Append zeros to input z if necessary
-    if len(z) < min_len:
-        z = np.concatenate([z, np.zeros((min_len - len(z),))])
+    sig = np.where(x < 0, np.exp(x) / (1 + np.exp(x)), 1 / (1 + np.exp(-x)))
 
-    normalization_factor = 1 if np.max(abs(z)) == 0 else np.max(abs(z))
-    z = z / normalization_factor
+    return sig
 
-    # Monomial basis functions
-    psi_1nn = z * normalization_factor  # 1st Order
-    psi_2nn = z**2  # 2nd order
-    psi_3nn = z**3  # 3rd Order
-    psi_4nn = z**3 + 2 * z**2 - 3 * z - 1  # Polynomial
-    psi_5nn = -(z**3) - 5 * z**2 + 4 * z + 2  # Polynomial
-    psi_6nn = 2 * z**3 - 2 * z**2 + 2 * z - 2  # Polynomial
 
-    # # Radial Basis Functions (RBFs)
-    # k = 1.0  # Multiplier for RBF
-    # Q = 1 / k * np.eye(len(z))  # Exponential gain for RBF
+#! This will eventually go in another module
+class RecurrentNeuralNetwork:
+    """RecurrentNeuralNetwork: class interface to recurrent neural network.
 
-    # psi_6n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
-    # psi_7nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
+    Properties:
+        TBD
 
-    basis_funcs = np.hstack(
-        [
-            psi_1nn,
-            psi_2nn,
-            psi_3nn,
-            psi_4nn,
-            psi_5nn,
-            psi_6nn,
-            # psi_7nn,
-        ]
-    )
+    Methods:
+        TBD
 
-    # return psi_1nn
-    return basis_funcs
+    """
+
+    def __init__(self, n_inputs: int, n_outputs: int):
+        """Class initializer.
+
+        Arguments:
+            n_inputs: number of RNN inputs
+            n_outputs: number of RNN outputs
+
+        """
+        self.n_inputs = n_inputs
+        self.n_outputs = n_outputs
+
+        # Weights
+        self.input_weights_a = 0.1 * np.eye(n_inputs)  # Forget Weights
+        self.input_weights_b = np.eye(n_inputs)
+        self.input_weights_c = np.eye(n_inputs)
+        self.input_weights_d = np.eye(n_inputs)
+        self.hidden_weights_a = 0.1 * np.eye(n_outputs)  # Forget Weights
+        self.hidden_weights_b = np.eye(n_outputs)
+        self.hidden_weights_c = np.eye(n_outputs)
+        self.hidden_weights_d = np.eye(n_outputs)
+
+        # Biases
+        self.bias_a = np.random.random((n_inputs,))
+        self.bias_b = np.random.random((n_inputs,))
+        self.bias_c = np.random.random((n_inputs,))
+        self.bias_d = np.random.random((n_inputs,))
+
+        # RNN States
+        self.cell_state = np.zeros((self.n_inputs,))
+        self.hidden_state = np.zeros((self.n_outputs,))
+
+    #! This is really for a LSTM RNN, will generalize later
+    def update_rnn(self, new_input: NDArray) -> NDArray:
+        """Updates the RNN state according to the new input.
+
+        Arguments:
+            new_input: new input to the RNN
+
+        Returns:
+            new_output: new output based on input, hidden, and cell states
+
+        """
+        at = sigmoid(
+            self.hidden_weights_a @ self.hidden_state
+            + self.input_weights_a @ new_input
+            + self.bias_a
+        )
+        bt = sigmoid(
+            self.hidden_weights_b @ self.hidden_state
+            + self.input_weights_b @ new_input
+            + self.bias_b
+        )
+        ct = np.tanh(
+            self.hidden_weights_c @ self.hidden_state
+            + self.input_weights_c @ new_input
+            + self.bias_c
+        )
+        dt = sigmoid(
+            self.hidden_weights_d @ self.hidden_state
+            + self.input_weights_d @ new_input
+            + self.bias_d
+        )
+
+        self.cell_state = self.hidden_state * at + bt * ct
+        self.hidden_state = dt * np.tanh(self.cell_state)
+
+        return self.hidden_state
+
+    @property
+    def outputs(self) -> NDArray:
+        """Property for the hidden RNN states."""
+        return self.hidden_state
 
 
 class FxtAdaptationCbfQpController(CbfQpController):
@@ -128,19 +179,29 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.n_states = nStates
 
         # Unknown parameter properties
-        example_basis_fcns = basis_functions(np.zeros((self.n_states,)), self.n_states)
+        example_basis_fcns = basis_functions(np.zeros((self.n_states,)))
         self.n_params = len(example_basis_fcns) ** 2
         self.theta = np.eye(len(example_basis_fcns)).reshape((self.n_params,))
         self.theta_dot = np.zeros((self.n_params,))
         self.eta0 = 100.0 * np.ones((self.n_params,))  #! Lazy coding -- needs to be fixed
         self.M = np.zeros((len(example_basis_fcns), self.n_params))
+        self.Mf = np.zeros((len(example_basis_fcns), self.n_states))
+        self.ffunc = np.zeros((self.n_states,))
         self.U_koopman = np.eye(len(example_basis_fcns))
         self.U_koopman_last = np.eye(len(example_basis_fcns))
         self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
         self.function_estimation_error = np.zeros((self.n_states,))
 
+        # RNN's for Basis Function Memory
+        self.rnn_px = RecurrentNeuralNetwork(len(example_basis_fcns), len(example_basis_fcns))
+        self.rnn_py = RecurrentNeuralNetwork(len(example_basis_fcns), len(example_basis_fcns))
+        self.rnn_dpxdx = RecurrentNeuralNetwork(
+            len(example_basis_fcns) * self.n_states, len(example_basis_fcns) * self.n_states
+        )
+
         # Gains -- a = 0 becomes finite-time
-        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-4 * np.eye(self.n_params)}
+        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-1 * np.eye(self.n_params)}
+        # self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1 * np.eye(self.n_params)}
 
         # Miscellaneous parameters
         self.safety = True
@@ -190,10 +251,13 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         # Update Parameter Estimates
         if t > 0:
+            # Update estimates
             theta, theta_dot = self.update_parameter_estimates()
-            residual_dynamics = self.compute_unknown_function()
-            function_estimation_error = f_residual(self.z_ego) - residual_dynamics
-            self.nominal_controller.residual_dynamics = residual_dynamics
+            ffunc, ffunc_dot = self.update_unknown_function_estimate()
+
+            # residual_dynamics = self.compute_unknown_function()
+            function_estimation_error = f_residual(self.z_ego) - ffunc
+            self.nominal_controller.residual_dynamics = ffunc
 
             self.function_estimation_error = function_estimation_error
             # print(f"Residual Dynamics: {residual_dynamics}")
@@ -461,12 +525,16 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         # Generate Px and Py from input/output data
-        px = self.compute_basis_functions(self.z_ego)
-        py = self.compute_basis_functions(self.outputs)
+        px = self.rnn_px.update_rnn(self.compute_basis_functions(self.z_ego))
+        py = self.rnn_py.update_rnn(self.compute_basis_functions(self.outputs))
 
         # Compute matrix M and vector v for adaptation law
         self.M = block_diag(*(len(px)) * [px])
         v = py - self.M @ self.theta
+        # print(f"v: {v}")
+        # print(f"px: {px.max()}")
+        # print(f"py: {py.max()}")
+        # print(f"t: {self.theta.max()}")
 
         a = self.law_gains["a"]
         b = self.law_gains["b"]
@@ -482,6 +550,72 @@ class FxtAdaptationCbfQpController(CbfQpController):
             print(self.theta[self.theta > 1e9])
 
         return theta_dot
+
+    def update_unknown_function_estimate(self) -> NDArray:
+        """Updates the estimated unknown function in the system dynamics
+        according to the FxTS update law.
+
+        Arguments:
+            TBD
+
+        Returns:
+            TBD
+
+        """
+        # Compute time-derivatives of unknown function
+        self.ffunc_dot = self.compute_ffunc_dot()
+
+        # Update theta parameters according to first-order forward-Euler
+        self.ffunc = self.ffunc + self.ffunc_dot * self._dt
+        self.ffunc[abs(self.ffunc) < 1e-6] = 0  # Step used in Mauroy et al.
+
+        return self.ffunc, self.ffunc_dot
+
+    def compute_ffunc_dot(self) -> NDArray:
+        """Computes the time-derivative of the estimated unknown function
+        in the system dynamics.
+
+        Arguments:
+            None
+
+        Returns:
+            ffunc_dot: time-derivative of unknown function estimate
+
+        """
+        # Generate psi and partial derivatives
+        px = self.rnn_px.outputs
+        gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
+        dpxdx = self.rnn_dpxdx.update_rnn(
+            gradient_matrix.reshape((len(px) * self.n_states,))
+        ).reshape(gradient_matrix.shape)
+        # px = self.compute_basis_functions(self.z_ego)
+        # dpxdx = self.compute_basis_function_gradients(self.z_ego)
+
+        self.Mf = dpxdx
+        v = self.compute_koopman_generator().T @ px - self.Mf @ self.ffunc
+        # print(f"v: {v}")
+        # print(f"L: {self.compute_koopman_generator().T.max()}")
+        # print(f"p: {px.max()}")
+        # print(f"M: {self.Mf.max()}")
+        # print(f"f: {self.ffunc.max()}")
+
+        a = self.law_gains["a"]
+        b = self.law_gains["b"]
+        w = self.law_gains["w"]
+        G = self.law_gains["G"]
+        norm_v = np.linalg.norm(v)
+
+        if norm_v > 1e-6:
+            ffunc_dot = (
+                G[: self.n_states, : self.n_states]
+                @ self.Mf.T
+                @ v
+                * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
+            )
+        else:
+            ffunc_dot = np.zeros(self.ffunc_dot.shape)
+
+        return ffunc_dot
 
     def compute_unknown_function(self) -> NDArray:
         """Computes the approximate infinitesimal generator L of the
@@ -513,7 +647,21 @@ class FxtAdaptationCbfQpController(CbfQpController):
             basis_functions: vector of values of basis functions
 
         """
-        return basis_functions(z, len(self.z_ego))
+        return basis_functions(z)
+
+    def compute_basis_function_gradients(self, z: NDArray) -> NDArray:
+        """Computes the gradients of the basis functions evaluated at the current
+        state and control values. Returns the (b x n) matrix of basis function
+        gradients.
+
+        Arguments
+            z: input vector (may be states and controls or outputs)
+
+        Returns
+            basis_function_grads: matrix of gradients of basis functions
+
+        """
+        return basis_function_gradients(z)
 
     def get_koopman_matrix(self) -> NDArray:
         """Retrieves the (approximated) Koopman matrix from the parameter
@@ -547,15 +695,15 @@ class FxtAdaptationCbfQpController(CbfQpController):
         min_eig_U = np.min(np.linalg.eig(U)[0])
 
         # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
-        if rank_U < U.shape[0] or min_eig_U < 0:
+        if rank_U < U.shape[0]:  # or min_eig_U < 0:
             raise ValueError("Linearly Dependent Koopman Matrix --> No LogM Generator!")
         else:
-            # # Discrete-Sampling Implementation
-            # self.L_generator = logm(U) / self._dt
+            # Discrete-Sampling Implementation
+            self.L_generator = logm(U) / self._dt
 
-            # Numerically Differentiate (Continuous-Time Approximation)
-            self.L_generator = (logm(U) - logm(self.U_koopman_last)) / self._dt
-            self.U_koopman_last = U
+            # # Numerically Differentiate (Continuous-Time Approximation)
+            # self.L_generator = (logm(U) - logm(self.U_koopman_last)) / self._dt
+            # self.U_koopman_last = U
 
         # *******************
         self.L_generator[abs(self.L_generator) < 1e-6] = 0
