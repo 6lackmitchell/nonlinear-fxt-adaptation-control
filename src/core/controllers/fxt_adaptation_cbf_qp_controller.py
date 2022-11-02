@@ -31,6 +31,8 @@ globals().update({"g": getattr(module, "g")})
 globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
 globals().update({"f_residual": getattr(module, "f_residual")})
 
+MONOMIAL_FACTOR = 100.0
+
 
 def sigmoid(x: float or NDArray):
     """Numerically stable implementation of the sigmoid function.
@@ -208,8 +210,18 @@ class FxtAdaptationCbfQpController(CbfQpController):
         )
 
         # Gains -- a = 0 becomes finite-time
-        # self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-3 * np.eye(self.n_params)}
-        self.law_gains = {"a": 5.0, "b": 5.0, "w": 5.0, "G": 1e-1 * np.eye(self.n_params)}
+        # self.law_gains = {
+        #     "a": 1.0,
+        #     "b": 1.0,
+        #     "w": 5.0,
+        #     "G": 1 * np.eye(self.n_params),
+        # }  # Works for sin/cos sinusoidal basis functions
+        self.law_gains = {
+            "a": 1.0,
+            "b": 1.0,
+            "w": 5.0,
+            "G": 10 * np.eye(self.n_params),
+        }  # Testing for rossler
 
         # Miscellaneous parameters
         self.safety = True
@@ -697,7 +709,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         #     self.rnn_px.outputs @ self.compute_koopman_generator()[:, : self.n_states]
         # )
 
-        return unknown_f_estimate
+        return unknown_f_estimate * MONOMIAL_FACTOR
 
     def compute_basis_functions(self, z: NDArray) -> NDArray:
         """Computes the values of the basis functions evaluated at the current
@@ -711,7 +723,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
             basis_functions: vector of values of basis functions
 
         """
-        return basis_functions(z)
+        return basis_functions(z / MONOMIAL_FACTOR)
 
     def compute_basis_function_gradients(self, z: NDArray) -> NDArray:
         """Computes the gradients of the basis functions evaluated at the current
@@ -725,7 +737,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
             basis_function_grads: matrix of gradients of basis functions
 
         """
-        return basis_function_gradients(z)
+        return basis_function_gradients(z / MONOMIAL_FACTOR)
 
     def get_koopman_matrix(self) -> NDArray:
         """Retrieves the (approximated) Koopman matrix from the parameter

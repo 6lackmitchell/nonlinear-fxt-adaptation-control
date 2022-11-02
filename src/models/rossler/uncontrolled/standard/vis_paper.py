@@ -95,7 +95,7 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
     # Compute derived quantities
     tf = ii * dt
     t = np.linspace(dt, tf, int(tf / dt))
-    # t = t[:-5000]
+    # t = t[:300]
 
     state_figs = generate_state_figures(t, x)
     estimation_figs = generate_estimation_figures(t, f_err, f_est)
@@ -147,13 +147,13 @@ def generate_estimation_figures(t: NDArray, f_err: NDArray, f_est: NDArray) -> L
 
     # Set up figure
     fig = plt.figure(figsize=(10, 10))
-    ax1 = fig.add_subplot(211)
-    ax2 = fig.add_subplot(212)
-    set_edges_black(ax1)
+    # ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(111)
+    # set_edges_black(ax1)
     set_edges_black(ax2)
-    ax1.plot(t, f_err[0, : len(t), 0])
-    ax1.plot(t, f_err[0, : len(t), 1])
-    ax1.plot(t, f_err[0, : len(t), 2])
+    # ax1.plot(t, f_err[0, : len(t), 0])
+    # ax1.plot(t, f_err[0, : len(t), 1])
+    # ax1.plot(t, f_err[0, : len(t), 2])
     ax2.plot(t, f_est[0, : len(t), 0])
     ax2.plot(t, f_est[0, : len(t), 1])
     ax2.plot(t, f_est[0, : len(t), 2])

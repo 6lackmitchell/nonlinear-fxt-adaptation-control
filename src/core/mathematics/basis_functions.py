@@ -43,6 +43,7 @@ def basis_functions(x: NDArray) -> NDArray:
     # Compute function values and stack them
     basis_values = np.hstack([monomials(x), sinusoids(x)])
 
+    basis_values = monomials(x)
     # basis_values = sinusoids(x)
 
     return basis_values
@@ -70,6 +71,7 @@ def basis_function_gradients(x: NDArray) -> NDArray:
 
     gradients = np.vstack([monomial_gradients, sinusoidal_gradients])
 
+    gradients = monomial_gradients
     # gradients = sinusoidal_gradients
 
     return gradients
@@ -111,46 +113,75 @@ def _sinusoidal_basis_functions(n_states: int) -> NDArray:
     # Individual basis functions
     sin_0n = [se.sin(xs[ii]) for ii in range(len(xs))]
     cos_0n = [se.cos(xs[ii]) for ii in range(len(xs))]
-    sin_1n = [se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-    cos_1n = [se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-    sin_2n = [se.sin(4 * np.pi * xs[ii]) for ii in range(len(xs))]
-    cos_2n = [se.cos(4 * np.pi * xs[ii]) for ii in range(len(xs))]
-    sin_3n = [se.sin(6 * np.pi * xs[ii]) for ii in range(len(xs))]
-    cos_3n = [se.cos(6 * np.pi * xs[ii]) for ii in range(len(xs))]
-    sin_4n = [se.sin(8 * np.pi * xs[ii]) for ii in range(len(xs))]
-    cos_4n = [se.cos(8 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # sin_1n = [se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # cos_1n = [se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # sin_2n = [se.sin(4 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # cos_2n = [se.cos(4 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # sin_3n = [se.sin(6 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # cos_3n = [se.cos(6 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # sin_4n = [se.sin(8 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # cos_4n = [se.cos(8 * np.pi * xs[ii]) for ii in range(len(xs))]
 
-    # Cross basis functions
-    cross_1 = [
-        se.sin(2 * np.pi * xs[ii]) * se.cos(2 * np.pi * xs[(ii + 1) % len(xs)])
-        for ii in range(len(xs))
-    ]
-    cross_2 = [
-        se.cos(2 * np.pi * xs[(ii - 1) % len(xs)]) * se.sin(2 * np.pi * xs[(ii + 1) % len(xs)])
-        for ii in range(len(xs))
-    ]
-    cross_3 = [xs[(ii - 1) % len(xs)] * se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-    cross_4 = [xs[(ii + 1) % len(xs)] * se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # # Cross basis functions
+    # cross_1 = [
+    #     se.sin(2 * np.pi * xs[ii]) * se.cos(2 * np.pi * xs[(ii + 1) % len(xs)])
+    #     for ii in range(len(xs))
+    # ]
+    # cross_2 = [
+    #     se.cos(2 * np.pi * xs[(ii - 1) % len(xs)]) * se.sin(2 * np.pi * xs[(ii + 1) % len(xs)])
+    #     for ii in range(len(xs))
+    # ]
+    # cross_3 = [xs[(ii - 1) % len(xs)] * se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
+    # cross_4 = [xs[(ii + 1) % len(xs)] * se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
 
-    sinusoids = (
-        sin_0n
-        + cos_0n
-        + sin_1n
-        + cos_1n
-        + sin_2n
-        + cos_2n
-        + sin_3n
-        + cos_3n
-        + sin_4n
-        + cos_4n
-        + cross_1
-        + cross_2
-        + cross_3
-        + cross_4
-    )
+    # # Sinusoids
+    # sinusoids = (
+    #     sin_0n
+    #     + cos_0n
+    #     + sin_1n
+    #     + cos_1n
+    #     + sin_2n
+    #     + cos_2n
+    #     + sin_3n
+    #     + cos_3n
+    #     + sin_4n
+    #     + cos_4n
+    #     # + cross_1
+    #     # + cross_2
+    #     # + cross_3
+    #     # + cross_4
+    # )
 
-    # # Testing
-    # sinusoids = sin_0n + cos_0n
+    # Sin basis functions
+    sin_1n = [2 ** (1 / 2) * se.sin(1 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_2n = [2 ** (1 / 2) * se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_3n = [2 ** (1 / 2) * se.sin(3 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_4n = [2 ** (1 / 2) * se.sin(4 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_5n = [2 ** (1 / 2) * se.sin(5 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_6n = [2 ** (1 / 2) * se.sin(6 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_7n = [2 ** (1 / 2) * se.sin(7 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_8n = [2 ** (1 / 2) * se.sin(8 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_9n = [2 ** (1 / 2) * se.sin(9 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_10n = [2 ** (1 / 2) * se.sin(10 * np.pi * xs[ii]) for ii in range(len(xs))]
+
+    # Cos basis functions
+    cos_1n = [2 ** (1 / 2) * se.cos(1 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_2n = [2 ** (1 / 2) * se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_3n = [2 ** (1 / 2) * se.cos(3 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_4n = [2 ** (1 / 2) * se.cos(4 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_5n = [2 ** (1 / 2) * se.cos(5 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_6n = [2 ** (1 / 2) * se.cos(6 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_7n = [2 ** (1 / 2) * se.cos(7 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_8n = [2 ** (1 / 2) * se.cos(8 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_9n = [2 ** (1 / 2) * se.cos(9 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_10n = [2 ** (1 / 2) * se.cos(10 * np.pi * xs[ii]) for ii in range(len(xs))]
+
+    # sinusoids = (
+    #     sin_1n + sin_2n  # + sin_3n + sin_4n + sin_5n + sin_6n + sin_7n + sin_8n + sin_9n + sin_10n
+    # )
+
+    # Testing
+    sinusoids = sin_0n + cos_0n + sin_1n + cos_1n
 
     return se.Matrix(sinusoids), xs
 
