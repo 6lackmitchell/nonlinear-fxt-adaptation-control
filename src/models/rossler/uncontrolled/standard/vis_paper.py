@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt
 
 matplotlib.rcParams.update({"figure.autolayout": True})
 
-N = 2 * N_AGENTS
+N = 3 * N_AGENTS
 plt.style.use(["ggplot"])
 plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.cm.viridis(np.linspace(0, 1, N)))
 
@@ -89,6 +89,7 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
 
         x = np.array([data[a]["x"] for a in data.keys()])
         f_err = np.array([data[a]["f_error"] for a in data.keys()])
+        f_est = np.array([data[a]["f_est"] for a in data.keys()])
         ii = int(data[0]["ii"] / dt) - 1
 
     # Compute derived quantities
@@ -97,7 +98,7 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
     # t = t[:-5000]
 
     state_figs = generate_state_figures(t, x)
-    estimation_figs = generate_estimation_figures(t, f_err)
+    estimation_figs = generate_estimation_figures(t, f_err, f_est)
 
     return state_figs + estimation_figs
 
@@ -131,12 +132,13 @@ def generate_state_figures(t: NDArray, x: NDArray) -> List:
     return figs
 
 
-def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
+def generate_estimation_figures(t: NDArray, f_err: NDArray, f_est: NDArray) -> List:
     """Generates static figures for plotting the state trajectories.
 
     Arguments:
         t: time vector
         f_err: time history of the unknown function estimation error
+        f_est: time history of the estimated unknown function
 
     Returns:
         figs: list to handles of figure objects
@@ -145,11 +147,19 @@ def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
 
     # Set up figure
     fig = plt.figure(figsize=(10, 10))
-    ax = fig.add_subplot(111)
-    set_edges_black(ax)
-    ax.plot(t, f_err[0, : len(t), 0])
-    ax.plot(t, f_err[0, : len(t), 1])
-    ax.plot(t, f_err[0, : len(t), 2])
+    ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(212)
+    set_edges_black(ax1)
+    set_edges_black(ax2)
+    ax1.plot(t, f_err[0, : len(t), 0])
+    ax1.plot(t, f_err[0, : len(t), 1])
+    ax1.plot(t, f_err[0, : len(t), 2])
+    ax2.plot(t, f_est[0, : len(t), 0])
+    ax2.plot(t, f_est[0, : len(t), 1])
+    ax2.plot(t, f_est[0, : len(t), 2])
+    ax2.plot(t, f_est[0, : len(t), 0] + f_err[0, : len(t), 0], ":")
+    ax2.plot(t, f_est[0, : len(t), 1] + f_err[0, : len(t), 1], ":")
+    ax2.plot(t, f_est[0, : len(t), 2] + f_err[0, : len(t), 2], ":")
 
     # Figure list
     figs = [fig]

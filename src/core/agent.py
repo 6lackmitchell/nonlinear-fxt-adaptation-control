@@ -90,6 +90,7 @@ class Agent:
 
         if hasattr(self.controller, "function_estimation_error"):
             self.function_estimation_error = np.zeros((self.nTimesteps, x0.shape[0]))
+            self.function_estimation = np.zeros((self.nTimesteps, x0.shape[0]))
 
         # Save data object -- auto-updating since defined by reference
         self.data = {
@@ -100,6 +101,7 @@ class Agent:
             "ccbf": self.consolidated_cbf_trajectory,
             "kgains": self.k_gains_trajectory,
             "f_error": self.function_estimation_error,
+            "f_est": self.function_estimation,
             "ii": self.t,
         }
 
@@ -134,6 +136,7 @@ class Agent:
             self.function_estimation_error[
                 self.timestep, :
             ] = self.controller.function_estimation_error
+            self.function_estimation[self.timestep, :] = self.controller.function_estimation
 
         if misc is not None:
             print(misc)

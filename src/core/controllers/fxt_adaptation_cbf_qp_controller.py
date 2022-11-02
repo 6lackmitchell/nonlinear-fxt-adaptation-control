@@ -191,6 +191,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.U_koopman_last = np.eye(len(example_basis_fcns))
         self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
         self.function_estimation_error = np.zeros((self.n_states,))
+        self.function_estimation = np.zeros((self.n_states,))
 
         # RNN's for Basis Function Memory
         self.rnn_px = RecurrentNeuralNetwork(len(example_basis_fcns), len(example_basis_fcns))
@@ -253,13 +254,15 @@ class FxtAdaptationCbfQpController(CbfQpController):
         if t > 0:
             # Update estimates
             theta, theta_dot = self.update_parameter_estimates()
-            ffunc, ffunc_dot = self.update_unknown_function_estimate()
+            # ffunc, ffunc_dot = self.update_unknown_function_estimate()
+            ffunc = self.compute_unknown_function()
 
             # residual_dynamics = self.compute_unknown_function()
             function_estimation_error = f_residual(self.z_ego) - ffunc
             self.nominal_controller.residual_dynamics = ffunc
 
             self.function_estimation_error = function_estimation_error
+            self.function_estimation = ffunc
             # print(f"Residual Dynamics: {residual_dynamics}")
 
         # Update last measured state

@@ -12,9 +12,64 @@ from nptyping import NDArray
 import symengine as se
 import numpy as np
 
-# Define Symbolic State
+#! FIND A BETTER WAY TO DO THIS!!!
+# Define Global variables
+global _MONOMIALS, _SINUSOIDS, _XS
+_MONOMIALS = None
+_SINUSOIDS = None
+_XS = None
 
 
+def basis_functions(x: NDArray) -> NDArray:
+    """Computes the values of the basis functiions evaluated at the current
+    state. Returns the (b x 1) vector of basis function values.
+
+    Arguments:
+        x: input vector at which functions are evaluated
+
+    Returns:
+        basis_values: values of the basis functions evaluated at x
+
+    """
+    global _MONOMIALS, _SINUSOIDS, _XS
+    # Generate symbolic wrappers
+    if (_MONOMIALS is None) or (_SINUSOIDS is None) or (_XS is None):
+        _MONOMIALS, _XS = _monomial_basis_functions(len(x))
+        _SINUSOIDS, _ = _sinusoidal_basis_functions(len(x))
+
+    monomials = symbolic_bases_wrapper(_MONOMIALS, _XS)
+    sinusoids = symbolic_bases_wrapper(_SINUSOIDS, _XS)
+
+    # Compute function values and stack them
+    basis_values = np.hstack([monomials(x), sinusoids(x)])
+
+    return basis_values
+
+
+def basis_function_gradients(x: NDArray) -> NDArray:
+    """Computes the gradients of the basis functions at the input value x.
+
+    Arguments:
+        x: input vector
+
+    Returns:
+        gradients: gradients of the basis functions at x
+
+    """
+    global _MONOMIALS, _SINUSOIDS, _XS
+    # Generate symbolic wrappers
+    if (_MONOMIALS is None) or (_SINUSOIDS is None) or (_XS is None):
+        _MONOMIALS, _XS = _monomial_basis_functions(len(x))
+        _SINUSOIDS, _ = _sinusoidal_basis_functions(len(x))
+
+    # Generate gradients
+    monomial_gradients = _basis_function_gradients(x, _XS, _MONOMIALS)
+    sinusoidal_gradients = _basis_function_gradients(x, _XS, _SINUSOIDS)
+
+    return np.vstack([monomial_gradients, sinusoidal_gradients])
+
+
+# "Private" Functions -- do not need to be accessed outside module
 def _monomial_basis_functions(n_states: int):
     """Defines the basis functions for the Koopman lifting procedure."""
     # Define symbolic state
@@ -135,50 +190,6 @@ def _basis_function_gradients(x: NDArray, xs: se.Matrix, bases: se.Matrix) -> ND
     gradient = symbolic_bases_wrapper(gradient_symbolic, xs)
 
     return gradient(x)
-
-
-def basis_functions(x: NDArray) -> NDArray:
-    """Computes the values of the basis functiions evaluated at the current
-    state. Returns the (b x 1) vector of basis function values.
-
-    Arguments:
-        x: input vector at which functions are evaluated
-
-    Returns:
-        basis_values: values of the basis functions evaluated at x
-
-    """
-    # Generate symbolic wrappers
-    mono_wrapper, xs = _monomial_basis_functions(len(x))
-    sinu_wrapper, _ = _sinusoidal_basis_functions(len(x))
-    monomials = symbolic_bases_wrapper(mono_wrapper, xs)
-    sinusoids = symbolic_bases_wrapper(sinu_wrapper, xs)
-
-    # Compute function values and stack them
-    basis_values = np.hstack([monomials(x), sinusoids(x)])
-
-    return basis_values
-
-
-def basis_function_gradients(x: NDArray) -> NDArray:
-    """Computes the gradients of the basis functions at the input value x.
-
-    Arguments:
-        x: input vector
-
-    Returns:
-        gradients: gradients of the basis functions at x
-
-    """
-    # Generate symbolic wrappers
-    mono_wrapper, xs = _monomial_basis_functions(len(x))
-    sinu_wrapper, _ = _sinusoidal_basis_functions(len(x))
-
-    # Generate gradients
-    monomial_gradients = _basis_function_gradients(x, xs, mono_wrapper)
-    sinusoidal_gradients = _basis_function_gradients(x, xs, sinu_wrapper)
-
-    return np.vstack([monomial_gradients, sinusoidal_gradients])
 
 
 # def basis_functions(z: NDArray, min_len: int) -> NDArray:
