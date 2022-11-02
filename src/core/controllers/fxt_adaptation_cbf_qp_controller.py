@@ -12,6 +12,7 @@ from importlib import import_module
 import numpy as np
 from nptyping import NDArray
 from scipy.linalg import block_diag, null_space, logm
+from collections import deque
 
 # from core.cbfs.cbf import Cbf
 from core.controllers.cbf_qp_controller import CbfQpController
@@ -187,11 +188,17 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.M = np.zeros((len(example_basis_fcns), self.n_params))
         self.Mf = np.zeros((len(example_basis_fcns), self.n_states))
         self.ffunc = np.zeros((self.n_states,))
+        self.ffunc_dot = np.zeros((self.n_states,))
         self.U_koopman = np.eye(len(example_basis_fcns))
         self.U_koopman_last = np.eye(len(example_basis_fcns))
         self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
         self.function_estimation_error = np.zeros((self.n_states,))
         self.function_estimation = np.zeros((self.n_states,))
+
+        # Deques for testing least squares approach
+        self.PX = deque([], maxlen=100)
+        self.PY = deque([], maxlen=100)
+        self.DPXDX = deque([], maxlen=100)
 
         # RNN's for Basis Function Memory
         self.rnn_px = RecurrentNeuralNetwork(len(example_basis_fcns), len(example_basis_fcns))
@@ -201,8 +208,8 @@ class FxtAdaptationCbfQpController(CbfQpController):
         )
 
         # Gains -- a = 0 becomes finite-time
-        self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-1 * np.eye(self.n_params)}
-        # self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1 * np.eye(self.n_params)}
+        # self.law_gains = {"a": 1.0, "b": 1.0, "w": 5.0, "G": 1e-3 * np.eye(self.n_params)}
+        self.law_gains = {"a": 5.0, "b": 5.0, "w": 5.0, "G": 1e-1 * np.eye(self.n_params)}
 
         # Miscellaneous parameters
         self.safety = True
@@ -255,6 +262,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
             # Update estimates
             theta, theta_dot = self.update_parameter_estimates()
             # ffunc, ffunc_dot = self.update_unknown_function_estimate()
+            # ffunc = self.estimate_uncertainty_lstsq()
             ffunc = self.compute_unknown_function()
 
             # residual_dynamics = self.compute_unknown_function()
@@ -511,6 +519,44 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         return self.theta, self.theta_dot
 
+    def estimate_uncertainty_lstsq(self) -> NDArray:
+        """Tests the Koopman approximation approach using the standard data-
+        driven least squares method.
+
+        Arguments:
+            None
+
+        Returns:
+            theta: updated parameter estimates for approximating the uncertainty
+            theta_dot: array of zeros -- not used in data-driven approach
+
+        """
+        # Compute lifted data in basis space
+        self.PX.append(self.compute_basis_functions(self.z_ego))
+        self.PY.append(self.compute_basis_functions(self.outputs))
+        self.DPXDX.append(self.compute_basis_function_gradients(self.z_ego))
+
+        PX = np.array(self.PX)
+        PY = np.array(self.PY)
+        DPXDX = np.vstack(self.DPXDX)
+
+        # Approximate Koopman matrix with least squares
+        U = np.linalg.pinv(PX) @ PY
+        rank_U = np.linalg.matrix_rank(U)
+        min_eig_U = np.min(np.linalg.eig(U)[0])
+
+        # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
+        if rank_U < U.shape[0]:
+            return np.zeros((self.n_states,))
+
+        # Approximate Koopman generator
+        A = 1 / self._dt * logm(U)
+
+        # Approximate Vector Field
+        F = np.linalg.pinv(DPXDX) @ (block_diag(*(PX.shape[0]) * [A.T])) @ PX.flatten()
+
+        return F
+
     def compute_theta_dot(self) -> NDArray:
         """Computes the time-derivative of the Koopman parameters according to
         the following parameter update law:
@@ -528,27 +574,26 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         # Generate Px and Py from input/output data
-        px = self.rnn_px.update_rnn(self.compute_basis_functions(self.z_ego))
-        py = self.rnn_py.update_rnn(self.compute_basis_functions(self.outputs))
+        # px = self.rnn_px.update_rnn(self.compute_basis_functions(self.z_ego))
+        # py = self.rnn_py.update_rnn(self.compute_basis_functions(self.outputs))
+        px = self.compute_basis_functions(self.z_ego)
+        py = self.compute_basis_functions(self.outputs)
 
         # Compute matrix M and vector v for adaptation law
         self.M = block_diag(*(len(px)) * [px])
         v = py - self.M @ self.theta
-        # print(f"v: {v}")
-        # print(f"px: {px.max()}")
-        # print(f"py: {py.max()}")
-        # print(f"t: {self.theta.max()}")
 
+        # Load gains
         a = self.law_gains["a"]
         b = self.law_gains["b"]
         w = self.law_gains["w"]
         G = self.law_gains["G"]
         norm_v = np.linalg.norm(v)
 
+        # Compute adaptation
         theta_dot = G @ self.M.T @ v * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
 
         # Check for unbounded parameters
-        # print(f"Max Theta: {np.max(self.theta):.2f}")
         if np.max(self.theta) > 1e9:
             print(self.theta[self.theta > 1e9])
 
@@ -586,13 +631,13 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         # Generate psi and partial derivatives
-        px = self.rnn_px.outputs
-        gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
-        dpxdx = self.rnn_dpxdx.update_rnn(
-            gradient_matrix.reshape((len(px) * self.n_states,))
-        ).reshape(gradient_matrix.shape)
-        # px = self.compute_basis_functions(self.z_ego)
-        # dpxdx = self.compute_basis_function_gradients(self.z_ego)
+        # px = self.rnn_px.outputs
+        # gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
+        # dpxdx = self.rnn_dpxdx.update_rnn(
+        #     gradient_matrix.reshape((len(px) * self.n_states,))
+        # ).reshape(gradient_matrix.shape)
+        px = self.compute_basis_functions(self.z_ego)
+        dpxdx = self.compute_basis_function_gradients(self.z_ego)
 
         self.Mf = dpxdx
         v = self.compute_koopman_generator().T @ px - self.Mf @ self.ffunc
@@ -632,9 +677,25 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         z = self.z_ego
-        unknown_f_estimate = (
-            self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
-        )
+        # unknown_f_estimate = (
+        #     self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
+        # )
+
+        # # Get RNN Data
+        # px = self.rnn_px.outputs
+        # gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
+        # dpxdx = self.rnn_dpxdx.update_rnn(
+        #     gradient_matrix.reshape((len(px) * self.n_states,))
+        # ).reshape(gradient_matrix.shape)
+
+        # Approximate Vector Field
+        px = self.compute_basis_functions(self.z_ego)
+        dpxdx = self.compute_basis_function_gradients(self.z_ego)
+        unknown_f_estimate = np.linalg.pinv(dpxdx) @ (self.compute_koopman_generator().T @ px)
+
+        # unknown_f_estimate = (
+        #     self.rnn_px.outputs @ self.compute_koopman_generator()[:, : self.n_states]
+        # )
 
         return unknown_f_estimate
 
@@ -843,6 +904,8 @@ class FxtAdaptationCbfQpController(CbfQpController):
         system."""
 
         xdot = (self.z_ego - self.z_ego_last) / self._dt
-        outputs = xdot - f(self.z_ego) - g(self.z_ego) @ self.u
+        residual = xdot - f(self.z_ego) - g(self.z_ego) @ self.u
+
+        outputs = self.z_ego + xdot * self._dt
 
         return outputs
