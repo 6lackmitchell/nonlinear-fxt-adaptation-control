@@ -45,6 +45,15 @@ def simulate(tf: float, dt: float, vehicle: str, level: str, situation: str) -> 
             decentralized_agents,
         )
 
+    elif vehicle == "sinusoidal":
+        from models.sinusoidal import (
+            N_AGENTS,
+            N_STATES,
+            z0,
+            centralized_agents,
+            decentralized_agents,
+        )
+
     N_TIMESTEPS = int((tf - 0.0) / dt) + 1
 
     # Simulation setup

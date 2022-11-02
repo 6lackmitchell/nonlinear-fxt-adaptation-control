@@ -43,6 +43,8 @@ def basis_functions(x: NDArray) -> NDArray:
     # Compute function values and stack them
     basis_values = np.hstack([monomials(x), sinusoids(x)])
 
+    # basis_values = sinusoids(x)
+
     return basis_values
 
 
@@ -66,7 +68,11 @@ def basis_function_gradients(x: NDArray) -> NDArray:
     monomial_gradients = _basis_function_gradients(x, _XS, _MONOMIALS)
     sinusoidal_gradients = _basis_function_gradients(x, _XS, _SINUSOIDS)
 
-    return np.vstack([monomial_gradients, sinusoidal_gradients])
+    gradients = np.vstack([monomial_gradients, sinusoidal_gradients])
+
+    # gradients = sinusoidal_gradients
+
+    return gradients
 
 
 # "Private" Functions -- do not need to be accessed outside module
@@ -142,6 +148,9 @@ def _sinusoidal_basis_functions(n_states: int) -> NDArray:
         + cross_3
         + cross_4
     )
+
+    # # Testing
+    # sinusoids = sin_0n + cos_0n
 
     return se.Matrix(sinusoids), xs
 
