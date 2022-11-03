@@ -31,7 +31,8 @@ globals().update({"g": getattr(module, "g")})
 globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
 globals().update({"f_residual": getattr(module, "f_residual")})
 
-MONOMIAL_FACTOR = 100.0
+# MONOMIAL_FACTOR = 100.0
+MONOMIAL_FACTOR = 1.0
 
 
 def sigmoid(x: float or NDArray):
@@ -47,92 +48,6 @@ def sigmoid(x: float or NDArray):
     sig = np.where(x < 0, np.exp(x) / (1 + np.exp(x)), 1 / (1 + np.exp(-x)))
 
     return sig
-
-
-#! This will eventually go in another module
-class RecurrentNeuralNetwork:
-    """RecurrentNeuralNetwork: class interface to recurrent neural network.
-
-    Properties:
-        TBD
-
-    Methods:
-        TBD
-
-    """
-
-    def __init__(self, n_inputs: int, n_outputs: int):
-        """Class initializer.
-
-        Arguments:
-            n_inputs: number of RNN inputs
-            n_outputs: number of RNN outputs
-
-        """
-        self.n_inputs = n_inputs
-        self.n_outputs = n_outputs
-
-        # Weights
-        self.input_weights_a = 0.1 * np.eye(n_inputs)  # Forget Weights
-        self.input_weights_b = np.eye(n_inputs)
-        self.input_weights_c = np.eye(n_inputs)
-        self.input_weights_d = np.eye(n_inputs)
-        self.hidden_weights_a = 0.1 * np.eye(n_outputs)  # Forget Weights
-        self.hidden_weights_b = np.eye(n_outputs)
-        self.hidden_weights_c = np.eye(n_outputs)
-        self.hidden_weights_d = np.eye(n_outputs)
-
-        # Biases
-        self.bias_a = np.random.random((n_inputs,))
-        self.bias_b = np.random.random((n_inputs,))
-        self.bias_c = np.random.random((n_inputs,))
-        self.bias_d = np.random.random((n_inputs,))
-
-        # RNN States
-        self.cell_state = np.zeros((self.n_inputs,))
-        self.hidden_state = np.zeros((self.n_outputs,))
-
-    #! This is really for a LSTM RNN, will generalize later
-    def update_rnn(self, new_input: NDArray) -> NDArray:
-        """Updates the RNN state according to the new input.
-
-        Arguments:
-            new_input: new input to the RNN
-
-        Returns:
-            new_output: new output based on input, hidden, and cell states
-
-        """
-        at = sigmoid(
-            self.hidden_weights_a @ self.hidden_state
-            + self.input_weights_a @ new_input
-            + self.bias_a
-        )
-        bt = sigmoid(
-            self.hidden_weights_b @ self.hidden_state
-            + self.input_weights_b @ new_input
-            + self.bias_b
-        )
-        ct = np.tanh(
-            self.hidden_weights_c @ self.hidden_state
-            + self.input_weights_c @ new_input
-            + self.bias_c
-        )
-        dt = sigmoid(
-            self.hidden_weights_d @ self.hidden_state
-            + self.input_weights_d @ new_input
-            + self.bias_d
-        )
-
-        self.cell_state = self.hidden_state * at + bt * ct
-        self.hidden_state = dt * np.tanh(self.cell_state)
-
-        return self.hidden_state
-
-    @property
-    def outputs(self) -> NDArray:
-        """Property for the hidden RNN states."""
-        return self.hidden_state
 
 
 class FxtAdaptationCbfQpController(CbfQpController):
@@ -182,53 +97,32 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.n_states = nStates
 
         # Unknown parameter properties
-        example_basis_fcns = basis_functions(np.zeros((self.n_states,)))
-        self.n_params = len(example_basis_fcns) ** 2
-        self.theta = np.eye(len(example_basis_fcns)).reshape((self.n_params,))
-        self.theta_dot = np.zeros((self.n_params,))
-        self.eta0 = 100.0 * np.ones((self.n_params,))  #! Lazy coding -- needs to be fixed
-        self.M = np.zeros((len(example_basis_fcns), self.n_params))
-        self.Mf = np.zeros((len(example_basis_fcns), self.n_states))
-        self.ffunc = np.zeros((self.n_states,))
-        self.ffunc_dot = np.zeros((self.n_states,))
-        self.U_koopman = np.eye(len(example_basis_fcns))
-        self.U_koopman_last = np.eye(len(example_basis_fcns))
-        self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
+        n_params = len(basis_functions(np.zeros((self.n_states,)))) ** 2
+        # example_basis_fcns = basis_functions(np.zeros((self.n_states,)))
+        # self.n_params = len(example_basis_fcns) ** 2
+        # self.theta = np.eye(len(example_basis_fcns)).reshape((self.n_params,))
+        # self.theta_dot = np.zeros((self.n_params,))
+        self.eta0 = 100.0 * np.ones((n_params,))  #! Lazy coding -- needs to be fixed
+        # self.M = np.zeros((len(example_basis_fcns), self.n_params))
+        # self.Mf = np.zeros((len(example_basis_fcns), self.n_states))
+        # self.ffunc = np.zeros((self.n_states,))
+        # self.ffunc_dot = np.zeros((self.n_states,))
+        # self.U_koopman = np.eye(len(example_basis_fcns))
+        # self.U_koopman_last = np.eye(len(example_basis_fcns))
+        # self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
         self.function_estimation_error = np.zeros((self.n_states,))
         self.function_estimation = np.zeros((self.n_states,))
 
-        # Deques for testing least squares approach
-        self.PX = deque([], maxlen=100)
-        self.PY = deque([], maxlen=100)
-        self.DPXDX = deque([], maxlen=100)
-
-        # RNN's for Basis Function Memory
-        self.rnn_px = RecurrentNeuralNetwork(len(example_basis_fcns), len(example_basis_fcns))
-        self.rnn_py = RecurrentNeuralNetwork(len(example_basis_fcns), len(example_basis_fcns))
-        self.rnn_dpxdx = RecurrentNeuralNetwork(
-            len(example_basis_fcns) * self.n_states, len(example_basis_fcns) * self.n_states
-        )
-
-        # Gains -- a = 0 becomes finite-time
-        # self.law_gains = {
-        #     "a": 1.0,
-        #     "b": 1.0,
-        #     "w": 5.0,
-        #     "G": 1 * np.eye(self.n_params),
-        # }  # Works for sin/cos sinusoidal basis functions
-        self.law_gains = {
-            "a": 1.0,
-            "b": 1.0,
-            "w": 5.0,
-            "G": 10 * np.eye(self.n_params),
-        }  # Testing for rossler
+        # Instantiate estimator
+        # self.estimator = KoopmanMatrixEstimator(nStates, self._dt)
+        self.estimator = KoopmanGeneratorEstimator(nStates, self._dt)
 
         # Miscellaneous parameters
         self.safety = True
         self.max_class_k = 1e6  # Maximum allowable gain for linear class K function
         self.nominal_class_k = 1.0  # Nominal value for linear class K function
         self.discretization_error = 1.0  #! This needs to be corrected
-        self.regressor = np.zeros((self.n_states, self.n_params))
+        self.regressor = np.zeros((self.n_states, n_params))
 
         # CBF Parameters
         self.h = 100 * np.ones((n_cbfs,))
@@ -269,13 +163,21 @@ class FxtAdaptationCbfQpController(CbfQpController):
         # Update state variable
         self.z_ego = ze
 
+        #! Lazy -- figure out better way to do this
+        if self.estimator._dt is None:
+            self.estimator._dt = self._dt
+
         # Update Parameter Estimates
         if t > 0:
             # Update estimates
-            theta, theta_dot = self.update_parameter_estimates()
+            theta = self.estimator.update_parameter_estimates(
+                self.z_ego, (self.z_ego - self.z_ego_last) / self._dt
+            )
+            ffunc = self.estimator.compute_unknown_function(self.z_ego)
+            # theta, theta_dot = self.update_parameter_estimates()
             # ffunc, ffunc_dot = self.update_unknown_function_estimate()
             # ffunc = self.estimate_uncertainty_lstsq()
-            ffunc = self.compute_unknown_function()
+            # ffunc = self.compute_unknown_function()
 
             # residual_dynamics = self.compute_unknown_function()
             function_estimation_error = f_residual(self.z_ego) - ffunc
@@ -504,291 +406,6 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         return Ap, bp
 
-    def update_parameter_estimates(self) -> Tuple[NDArray, NDArray]:
-        """Updates parameters comprising the approximated Koopman Operator
-        according to the following parameter update law:
-
-        thetadot = Gamma @ M.T @ v * (a * ||v||^(2 / u) + b / ||v||^(2 / u))
-
-        where M and v are related according to Mz = v, with z the parameter
-        estimation error.
-
-        Arguments:
-            TBD
-
-        Returns:
-            theta: updated parameter estimates in system dynamics
-            thetadot: time-derivative of parameter estimates according to
-                adaptation law
-
-        """
-        # Compute time-derivatives of theta parameters
-        self.theta_dot = self.compute_theta_dot()
-
-        # Update theta parameters according to first-order forward-Euler
-        self.theta = self.theta + self.theta_dot * self._dt
-        self.theta[abs(self.theta) < 1e-6] = 0  # Step used in Mauroy et al.
-
-        return self.theta, self.theta_dot
-
-    def estimate_uncertainty_lstsq(self) -> NDArray:
-        """Tests the Koopman approximation approach using the standard data-
-        driven least squares method.
-
-        Arguments:
-            None
-
-        Returns:
-            theta: updated parameter estimates for approximating the uncertainty
-            theta_dot: array of zeros -- not used in data-driven approach
-
-        """
-        # Compute lifted data in basis space
-        self.PX.append(self.compute_basis_functions(self.z_ego))
-        self.PY.append(self.compute_basis_functions(self.outputs))
-        self.DPXDX.append(self.compute_basis_function_gradients(self.z_ego))
-
-        PX = np.array(self.PX)
-        PY = np.array(self.PY)
-        DPXDX = np.vstack(self.DPXDX)
-
-        # Approximate Koopman matrix with least squares
-        U = np.linalg.pinv(PX) @ PY
-        rank_U = np.linalg.matrix_rank(U)
-        min_eig_U = np.min(np.linalg.eig(U)[0])
-
-        # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
-        if rank_U < U.shape[0]:
-            return np.zeros((self.n_states,))
-
-        # Approximate Koopman generator
-        A = 1 / self._dt * logm(U)
-
-        # Approximate Vector Field
-        F = np.linalg.pinv(DPXDX) @ (block_diag(*(PX.shape[0]) * [A.T])) @ PX.flatten()
-
-        return F
-
-    def compute_theta_dot(self) -> NDArray:
-        """Computes the time-derivative of the Koopman parameters according to
-        the following parameter update law:
-
-        thetadot = Gamma @ M.T @ v * (a * ||v||^(2 / u) + b / ||v||^(2 / u))
-
-        where M and v are related according to Mz = v, with z the parameter
-        estimation error.
-
-        Arguments:
-            TBD
-
-        Returns:
-            theta_dot: time-derivative of parameter estimates in system dynamics
-
-        """
-        # Generate Px and Py from input/output data
-        # px = self.rnn_px.update_rnn(self.compute_basis_functions(self.z_ego))
-        # py = self.rnn_py.update_rnn(self.compute_basis_functions(self.outputs))
-        px = self.compute_basis_functions(self.z_ego)
-        py = self.compute_basis_functions(self.outputs)
-
-        # Compute matrix M and vector v for adaptation law
-        self.M = block_diag(*(len(px)) * [px])
-        v = py - self.M @ self.theta
-
-        # Load gains
-        a = self.law_gains["a"]
-        b = self.law_gains["b"]
-        w = self.law_gains["w"]
-        G = self.law_gains["G"]
-        norm_v = np.linalg.norm(v)
-
-        # Compute adaptation
-        theta_dot = G @ self.M.T @ v * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
-
-        # Check for unbounded parameters
-        if np.max(self.theta) > 1e9:
-            print(self.theta[self.theta > 1e9])
-
-        return theta_dot
-
-    def update_unknown_function_estimate(self) -> NDArray:
-        """Updates the estimated unknown function in the system dynamics
-        according to the FxTS update law.
-
-        Arguments:
-            TBD
-
-        Returns:
-            TBD
-
-        """
-        # Compute time-derivatives of unknown function
-        self.ffunc_dot = self.compute_ffunc_dot()
-
-        # Update theta parameters according to first-order forward-Euler
-        self.ffunc = self.ffunc + self.ffunc_dot * self._dt
-        self.ffunc[abs(self.ffunc) < 1e-6] = 0  # Step used in Mauroy et al.
-
-        return self.ffunc, self.ffunc_dot
-
-    def compute_ffunc_dot(self) -> NDArray:
-        """Computes the time-derivative of the estimated unknown function
-        in the system dynamics.
-
-        Arguments:
-            None
-
-        Returns:
-            ffunc_dot: time-derivative of unknown function estimate
-
-        """
-        # Generate psi and partial derivatives
-        # px = self.rnn_px.outputs
-        # gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
-        # dpxdx = self.rnn_dpxdx.update_rnn(
-        #     gradient_matrix.reshape((len(px) * self.n_states,))
-        # ).reshape(gradient_matrix.shape)
-        px = self.compute_basis_functions(self.z_ego)
-        dpxdx = self.compute_basis_function_gradients(self.z_ego)
-
-        self.Mf = dpxdx
-        v = self.compute_koopman_generator().T @ px - self.Mf @ self.ffunc
-        # print(f"v: {v}")
-        # print(f"L: {self.compute_koopman_generator().T.max()}")
-        # print(f"p: {px.max()}")
-        # print(f"M: {self.Mf.max()}")
-        # print(f"f: {self.ffunc.max()}")
-
-        a = self.law_gains["a"]
-        b = self.law_gains["b"]
-        w = self.law_gains["w"]
-        G = self.law_gains["G"]
-        norm_v = np.linalg.norm(v)
-
-        if norm_v > 1e-6:
-            ffunc_dot = (
-                G[: self.n_states, : self.n_states]
-                @ self.Mf.T
-                @ v
-                * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
-            )
-        else:
-            ffunc_dot = np.zeros(self.ffunc_dot.shape)
-
-        return ffunc_dot
-
-    def compute_unknown_function(self) -> NDArray:
-        """Computes the approximate infinitesimal generator L of the
-        Koopman Operator U.
-
-        Arguments
-            TBD
-
-        Returns
-            unknown_f_estimate: estimated unknown nonlinear function
-
-        """
-        z = self.z_ego
-        # unknown_f_estimate = (
-        #     self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
-        # )
-
-        # # Get RNN Data
-        # px = self.rnn_px.outputs
-        # gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
-        # dpxdx = self.rnn_dpxdx.update_rnn(
-        #     gradient_matrix.reshape((len(px) * self.n_states,))
-        # ).reshape(gradient_matrix.shape)
-
-        # Approximate Vector Field
-        px = self.compute_basis_functions(self.z_ego)
-        dpxdx = self.compute_basis_function_gradients(self.z_ego)
-        unknown_f_estimate = np.linalg.pinv(dpxdx) @ (self.compute_koopman_generator().T @ px)
-
-        # unknown_f_estimate = (
-        #     self.rnn_px.outputs @ self.compute_koopman_generator()[:, : self.n_states]
-        # )
-
-        return unknown_f_estimate * MONOMIAL_FACTOR
-
-    def compute_basis_functions(self, z: NDArray) -> NDArray:
-        """Computes the values of the basis functions evaluated at the current
-        state and control values. Returns the (b x 1) vector of basis function
-        values.
-
-        Arguments
-            z: input vector (may be states and controls or outputs)
-
-        Returns
-            basis_functions: vector of values of basis functions
-
-        """
-        return basis_functions(z / MONOMIAL_FACTOR)
-
-    def compute_basis_function_gradients(self, z: NDArray) -> NDArray:
-        """Computes the gradients of the basis functions evaluated at the current
-        state and control values. Returns the (b x n) matrix of basis function
-        gradients.
-
-        Arguments
-            z: input vector (may be states and controls or outputs)
-
-        Returns
-            basis_function_grads: matrix of gradients of basis functions
-
-        """
-        return basis_function_gradients(z / MONOMIAL_FACTOR)
-
-    def get_koopman_matrix(self) -> NDArray:
-        """Retrieves the (approximated) Koopman matrix from the parameter
-        estimates theta.
-
-        Arguments
-            None
-
-        Returns
-            U: (approximate) Koopman operator
-
-        """
-        dim_U = self.M.shape[0]
-        self.U_koopman = self.theta.reshape((dim_U, dim_U)).T
-
-        return self.U_koopman
-
-    def compute_koopman_generator(self) -> NDArray:
-        """Computes the approximate infinitesimal generator L of the
-        Koopman Operator U.
-
-        Arguments
-            TBD
-
-        Returns
-            L: (approximate) infinitesimal generator of Koopman operator
-
-        """
-        U = self.get_koopman_matrix()
-        rank_U = np.linalg.matrix_rank(U)
-        min_eig_U = np.min(np.linalg.eig(U)[0])
-
-        # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
-        if rank_U < U.shape[0]:  # or min_eig_U < 0:
-            raise ValueError("Linearly Dependent Koopman Matrix --> No LogM Generator!")
-        else:
-            # Discrete-Sampling Implementation
-            self.L_generator = logm(U) / self._dt
-
-            # # Numerically Differentiate (Continuous-Time Approximation)
-            # self.L_generator = (logm(U) - logm(self.U_koopman_last)) / self._dt
-            # self.U_koopman_last = U
-
-        # *******************
-        self.L_generator[abs(self.L_generator) < 1e-6] = 0
-        # This step was introduced by Mauroy et al.
-        # in line 150 of (https://github.com/AlexMauroy/Koopman-identification/blob/master/main/matlab/lifting_ident_main.m)
-        # *******************
-
-        return self.L_generator
-
     def compute_time_varying_cbf_term(self, dhdx: NDArray) -> float:
         """Computes the contribution of the time-varying parameters in the
         system dynamics to the time-derivative of the CBF under consideration.
@@ -909,15 +526,594 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         return self._nu
 
+
+class KoopmanEstimator:
+    """Parent class for Koopman operator based estimators. Not designed for
+    stand-alone use.
+
+    Attributes:
+        n_states
+        n_params
+        koopman_matrix
+        koopman_generator
+        theta
+
+    Methods:
+        update_parameter_estimates
+        compute_theta_dot
+        compute_basis_functions
+        compute_basis_function_gradients
+
+    """
+
+    def __init__(self, n_states: int, dt: float, use_rnn: bool = False):
+        """Class initializer.
+
+        Arguments:
+            n_states: number of states (i.e. dimension of vector field)
+            dt: simulation timestep
+
+        """
+        self._dt = dt
+        self.use_rnn = use_rnn
+        self.n_states = n_states
+        self.n_params = len(basis_functions(np.zeros((self.n_states,))))
+        self.xdot_meas = np.zeros((n_states,))
+
+        # Initialize Koopman objects
+        self.koopman_matrix = np.zeros((self.n_params, self.n_params))
+        self.koopman_generator = np.zeros((self.n_params, self.n_params))
+
+        # Initialize parameter estimates
+        self.theta = np.eye(self.n_params).reshape((self.n_params**2,))
+
+        # Initialize lifted input/output matrix/vectors
+        self.Px = np.zeros((self.n_params, self.n_params**2))
+        self.Py = np.zeros((self.n_params,))
+
+        # Define RNNs for Basis Function Memory
+        self.rnn_px = RecurrentNeuralNetwork(self.n_params, self.n_params)
+        self.rnn_py = RecurrentNeuralNetwork(self.n_params, self.n_params)
+        self.rnn_dpxdx = RecurrentNeuralNetwork(
+            self.n_params * self.n_states, self.n_params * self.n_states
+        )
+
+        # Define adaptation gains
+        self.law_gains = {
+            "a": 1.0,
+            "b": 1.0,
+            "w": 5.0,
+            "G": 25 * np.eye(self.n_params**2),
+        }  # Testing -- maybe they need to be different for each estimator
+
+        # Backup gains
+        # self.law_gains = {
+        #     "a": 1.0,
+        #     "b": 1.0,
+        #     "w": 5.0,
+        #     "G": 1 * np.eye(self.n_params),
+        # }  # Works for sin/cos sinusoidal basis functions
+        # self.law_gains = {
+        #     "a": 1.0,
+        #     "b": 1.0,
+        #     "w": 5.0,
+        #     "G": 10 * np.eye(self.n_params),
+        # }  # Works for Monomial and sinusoidal basis functions
+        # self.law_gains = {
+        #     "a": 1.0,
+        #     "b": 1.0,
+        #     "w": 5.0,
+        #     "G": 1e-1 * np.eye(self.n_params),
+        # }  # Testing for quadrotor -- okay for monomials
+        # self.law_gains = {
+        #     "a": 1.0,
+        #     "b": 1.0,
+        #     "w": 5.0,
+        #     "G": 1e-3 * np.eye(self.n_params),
+        # }  # Testing for quadrotor
+
+    def update_parameter_estimates(self, z: NDArray, xdot_meas: NDArray) -> NDArray:
+        """Updates parameters comprising the approximated Koopman Operator
+        according to the following parameter update law:
+
+        thetadot = Gamma @ M.T @ v * (a * ||v||^(2 / u) + b / ||v||^(2 / u))
+
+        where M and v are related according to Mz = v, with z the parameter
+        estimation error.
+
+        Arguments:
+            z: state vector
+            xdot_meas: last measured value of xdot
+
+        Returns:
+            theta: updated parameter estimates
+
+        """
+        self.xdot_meas = xdot_meas
+
+        # Compute time-derivatives of theta parameters
+        theta_dot = self.compute_theta_dot(z)
+
+        # Update theta parameters according to first-order forward-Euler
+        self.theta = self.theta + theta_dot * self._dt
+        self.theta[abs(self.theta) < 1e-12] = 0  # Step used in Mauroy et al.
+
+        return self.theta
+
+    def compute_theta_dot(self, z: NDArray) -> NDArray:
+        """Computes the time-derivative of the Koopman matrix parameters according
+        to the following parameter update law:
+
+        thetadot = Gamma @ M.T @ v * (a * ||v||^(2 / u) + b / ||v||^(2 / u))
+
+        where M and v are related according to Mz = v, with z the parameter
+        estimation error.
+
+        Arguments:
+            z: state vector
+
+        Returns:
+            theta_dot: time-derivative of parameter estimates in system dynamics
+
+        """
+        # Generate Px and Py from input/output data
+        if self.use_rnn:
+            px = self.rnn_px.update_rnn(self.compute_lifted_inputs(z))
+            py = self.rnn_py.update_rnn(self.compute_lifted_outputs(z))
+        else:
+            px = self.compute_lifted_inputs(z)
+            py = self.compute_lifted_outputs(z)
+
+        # Compute matrix M and vector v for adaptation law
+        self.Px = block_diag(*(len(px)) * [px])
+        v = py - self.Px @ self.theta
+
+        # Load gains
+        a = self.law_gains["a"]
+        b = self.law_gains["b"]
+        w = self.law_gains["w"]
+        G = self.law_gains["G"]
+        norm_v = np.linalg.norm(v)
+
+        # Compute adaptation
+        theta_dot = G @ self.Px.T @ v * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
+
+        return theta_dot
+
+    def compute_unknown_function(self, z: NDArray) -> NDArray:
+        """Computes the approximate infinitesimal generator L of the
+        Koopman Operator U.
+
+        Arguments
+            TBD
+
+        Returns
+            unknown_f_estimate: estimated unknown nonlinear function
+
+        """
+        # unknown_f_estimate = (
+        #     self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
+        # )
+
+        if self.use_rnn:
+            px = self.rnn_px.outputs
+            gradient_matrix = self.compute_basis_function_gradients(z)
+            dpxdx = self.rnn_dpxdx.update_rnn(
+                gradient_matrix.reshape((len(px) * self.n_states,))
+            ).reshape(gradient_matrix.shape)
+            vector_field_estimate = (
+                self.rnn_px.outputs @ self.get_koopman_generator()[:, : self.n_states]
+            )
+
+        else:
+            px = self.compute_basis_functions(z)
+            dpxdx = self.compute_basis_function_gradients(z)
+            vector_field_estimate = (
+                np.linalg.pinv(dpxdx) @ (self.get_koopman_generator().T @ px) * MONOMIAL_FACTOR
+            )
+
+        # unknown_residual_estimate = vector_field_estimate - f(z) - g(z) @ self.u
+        # vector_field_estimate = unknown_residual_estimate
+
+        return vector_field_estimate
+
+    def compute_basis_functions(self, z: NDArray) -> NDArray:
+        """Computes the values of the basis functions evaluated at the current
+        state and control values. Returns the (b x 1) vector of basis function
+        values.
+
+        Arguments
+            z: input vector (may be states and controls or outputs)
+
+        Returns
+            basis_functions: vector of values of basis functions
+
+        """
+        return basis_functions(z / MONOMIAL_FACTOR)
+
+    def compute_basis_function_gradients(self, z: NDArray) -> NDArray:
+        """Computes the gradients of the basis functions evaluated at the current
+        state and control values. Returns the (b x n) matrix of basis function
+        gradients.
+
+        Arguments
+            z: input vector (may be states and controls or outputs)
+
+        Returns
+            basis_function_grads: matrix of gradients of basis functions
+
+        """
+        return basis_function_gradients(z / MONOMIAL_FACTOR)
+
+    def compute_lifted_inputs(self, z: NDArray) -> NDArray:
+        """Computes the Koopman inputs lifted to the basis space.
+
+        Arguments:
+            z: input vector (usually state vector)
+
+        Returns:
+            Px: lifted inputs in basis space
+
+        """
+        return self.compute_basis_functions(z)
+
+    def compute_lifted_outputs(self, z: NDArray) -> NDArray:
+        """Gets the lifted basis outputs for the Koopman estimator according
+        to the child estimation scheme.
+
+        Arguments:
+            z: state vector
+            u: control input vector
+
+        Returns:
+            outputs: vector of lifted basis outputs
+
+        """
+        return self._compute_lifted_outputs(z)  # Overloaded by child class
+
+    def get_koopman_generator(self) -> NDArray:
+        """Gets the Koopman generator according to the child estimation scheme.
+
+        Arguments:
+            None
+
+        Returns:
+            koopman_generator: vector of lifted basis outputs
+
+        """
+        return self._get_koopman_generator()  # Overloaded by child class
+
+    # # For cascading FxT estimation -- not used right now
+    # def update_unknown_function_estimate(self) -> NDArray:
+    #     """Updates the estimated unknown function in the system dynamics
+    #     according to the FxTS update law.
+
+    #     Arguments:
+    #         TBD
+
+    #     Returns:
+    #         TBD
+
+    #     """
+    #     # Compute time-derivatives of unknown function
+    #     self.ffunc_dot = self.compute_ffunc_dot()
+
+    #     # Update theta parameters according to first-order forward-Euler
+    #     self.ffunc = self.ffunc + self.ffunc_dot * self._dt
+    #     self.ffunc[abs(self.ffunc) < 1e-12] = 0  # Step used in Mauroy et al.
+
+    #     return self.ffunc, self.ffunc_dot
+
+    # def compute_ffunc_dot(self) -> NDArray:
+    #     """Computes the time-derivative of the estimated unknown function
+    #     in the system dynamics.
+
+    #     Arguments:
+    #         None
+
+    #     Returns:
+    #         ffunc_dot: time-derivative of unknown function estimate
+
+    #     """
+    #     # Generate psi and partial derivatives
+    #     # px = self.rnn_px.outputs
+    #     # gradient_matrix = self.compute_basis_function_gradients(self.z_ego)
+    #     # dpxdx = self.rnn_dpxdx.update_rnn(
+    #     #     gradient_matrix.reshape((len(px) * self.n_states,))
+    #     # ).reshape(gradient_matrix.shape)
+    #     px = self.compute_basis_functions(self.z_ego)
+    #     dpxdx = self.compute_basis_function_gradients(self.z_ego)
+
+    #     self.Mf = dpxdx
+    #     v = self.compute_koopman_generator().T @ px - self.Mf @ self.ffunc
+    #     # print(f"v: {v}")
+    #     # print(f"L: {self.compute_koopman_generator().T.max()}")
+    #     # print(f"p: {px.max()}")
+    #     # print(f"M: {self.Mf.max()}")
+    #     # print(f"f: {self.ffunc.max()}")
+
+    #     a = self.law_gains["a"]
+    #     b = self.law_gains["b"]
+    #     w = self.law_gains["w"]
+    #     G = self.law_gains["G"]
+    #     norm_v = np.linalg.norm(v)
+
+    #     if norm_v > 1e-6:
+    #         ffunc_dot = (
+    #             G[: self.n_states, : self.n_states]
+    #             @ self.Mf.T
+    #             @ v
+    #             * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
+    #         )
+    #     else:
+    #         ffunc_dot = np.zeros(self.ffunc_dot.shape)
+
+    #     return ffunc_dot
+
+
+class KoopmanMatrixEstimator(KoopmanEstimator):
+    """Interface to the parameter adaptation law estimating the Koopman matrix.
+
+    Methods:
+        TBD
+
+    """
+
+    def __init__(self, n_states: int, dt: float, use_rnn: bool = False):
+        """Class initializer.
+
+        Arguments:
+            n_states: number of states (i.e. dimension of vector field)
+
+        """
+        super().__init__(n_states, dt, use_rnn)
+
+    def get_koopman_matrix(self) -> NDArray:
+        """Obtains the Koopman matrix from the adapted parameters.
+
+        Arguments:
+            None
+
+        Returns:
+            koopman_matrix
+
+        """
+        self.koopman_matrix = self.theta.reshape((self.n_params, self.n_params)).T
+
+        return self.koopman_matrix
+
+    def _get_koopman_generator(self) -> NDArray:
+        """Computes the approximate infinitesimal generator L of the
+        Koopman Operator U.
+
+        Arguments
+            TBD
+
+        Returns
+            koopman_generator: (approximate) infinitesimal generator of Koopman operator
+
+        """
+        U = self.get_koopman_matrix()
+        rank_U = np.linalg.matrix_rank(U)
+        min_eig_U = np.min(np.linalg.eig(U)[0])
+
+        # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
+        if rank_U < U.shape[0]:  # or min_eig_U < 0:
+            raise ValueError("Linearly Dependent Koopman Matrix --> No LogM Generator!")
+        else:
+            # Discrete-Sampling Implementation
+            self.koopman_generator = logm(U) / self._dt
+
+        # *******************
+        # This step was introduced by Mauroy et al.
+        # in line 150 of (https://github.com/AlexMauroy/Koopman-identification/blob/master/main/matlab/lifting_ident_main.m)
+        self.koopman_generator[abs(self.koopman_generator) < 1e-12] = 0
+        # *******************
+
+        return self.koopman_generator
+
+    def _compute_lifted_outputs(self, z: NDArray) -> NDArray:
+        """Gets the outputs for the Koopman matrix estimator. In this case, the
+        outputs are the state measurements.
+
+        Arguments:
+            z: state vector
+
+        Returns:
+            outputs: vector of outputs to be lifted in basis
+
+        """
+        outputs = z + self.xdot_meas * self._dt
+
+        return self.compute_basis_functions(outputs)
+
+
+class KoopmanGeneratorEstimator(KoopmanEstimator):
+    """Interface to the parameter adaptation law estimating the Koopman generator.
+
+    Methods:
+        TBD
+
+    """
+
+    def __init__(self, n_states: int, dt: float, use_rnn: bool = False):
+        """Class initializer.
+
+        Arguments:
+            n_states: number of states (i.e. dimension of vector field)
+            n_params: number of basis functions
+
+        """
+        super().__init__(n_states, dt, use_rnn)
+
+    def _get_koopman_generator(self) -> NDArray:
+        """Obtains the Koopman matrix from the adapted parameters.
+
+        Arguments:
+            None
+
+        Returns:
+            koopman_matrix
+
+        """
+        self.koopman_generator = self.theta.reshape((self.n_params, self.n_params)).T
+
+        return self.koopman_generator
+
+    def _compute_lifted_outputs(self, z: NDArray) -> NDArray:
+        """Gets the outputs for the Koopman matrix estimator. In this case, the
+        outputs are the state derivative measurements.
+
+        Arguments:
+            z: state vector
+
+        Returns:
+            outputs: vector of outputs to be lifted in basis
+
+        """
+        dpxdx = self.compute_basis_function_gradients(z)
+
+        return dpxdx @ self.xdot_meas
+
+
+class DataDrivenKoopmanMatrixEstimator(KoopmanEstimator):
+    def __init__(self, n_states: int, dt: float):
+        """Class initializer.
+
+        Arguments:
+            n_states: number of states
+            dt: timestep size
+
+        """
+        super().__init__(n_states, dt)
+
+        # Deques for testing least squares approach
+        self.PX = deque([], maxlen=500)
+        self.PY = deque([], maxlen=500)
+        self.DPXDX = deque([], maxlen=500)
+
+    #! Not usable right now, need to update for new Class
+    def estimate_uncertainty_lstsq(self) -> NDArray:
+        """Tests the Koopman approximation approach using the standard data-
+        driven least squares method.
+
+        Arguments:
+            None
+
+        Returns:
+            theta: updated parameter estimates for approximating the uncertainty
+            theta_dot: array of zeros -- not used in data-driven approach
+
+        """
+        # Compute lifted data in basis space
+        self.PX.append(self.compute_basis_functions(self.z_ego))
+        self.PY.append(self.compute_basis_functions(self.outputs))
+        self.DPXDX.append(self.compute_basis_function_gradients(self.z_ego))
+
+        # Deque to numpy array
+        PX = np.array(self.PX)
+        PY = np.array(self.PY)
+        DPXDX = np.vstack(self.DPXDX)
+
+        # Approximate Koopman matrix with least squares
+        U = np.linalg.pinv(PX) @ PY
+        rank_U = np.linalg.matrix_rank(U)
+        min_eig_U = np.min(np.linalg.eig(U)[0])
+
+        # If U is singular or has any negative real eigenvalues, then logm(U) is undefined
+        if rank_U < U.shape[0]:
+            return np.zeros((self.n_states,))
+
+        # Approximate Koopman generator
+        A = 1 / self._dt * logm(U)
+
+        # Approximate Vector Field
+        F = np.linalg.pinv(DPXDX) @ (block_diag(*(PX.shape[0]) * [A.T])) @ PX.flatten()
+
+        return F
+
+
+#! This will eventually go in another module
+class RecurrentNeuralNetwork:
+    """RecurrentNeuralNetwork: class interface to recurrent neural network.
+
+    Properties:
+        TBD
+
+    Methods:
+        TBD
+
+    """
+
+    def __init__(self, n_inputs: int, n_outputs: int):
+        """Class initializer.
+
+        Arguments:
+            n_inputs: number of RNN inputs
+            n_outputs: number of RNN outputs
+
+        """
+        self.n_inputs = n_inputs
+        self.n_outputs = n_outputs
+
+        # Weights
+        self.input_weights_a = 0.1 * np.eye(n_inputs)  # Forget Weights
+        self.input_weights_b = np.eye(n_inputs)
+        self.input_weights_c = np.eye(n_inputs)
+        self.input_weights_d = np.eye(n_inputs)
+        self.hidden_weights_a = 0.1 * np.eye(n_outputs)  # Forget Weights
+        self.hidden_weights_b = np.eye(n_outputs)
+        self.hidden_weights_c = np.eye(n_outputs)
+        self.hidden_weights_d = np.eye(n_outputs)
+
+        # Biases
+        self.bias_a = np.random.random((n_inputs,))
+        self.bias_b = np.random.random((n_inputs,))
+        self.bias_c = np.random.random((n_inputs,))
+        self.bias_d = np.random.random((n_inputs,))
+
+        # RNN States
+        self.cell_state = np.zeros((self.n_inputs,))
+        self.hidden_state = np.zeros((self.n_outputs,))
+
+    #! This is really for a LSTM RNN, will generalize later
+    def update_rnn(self, new_input: NDArray) -> NDArray:
+        """Updates the RNN state according to the new input.
+
+        Arguments:
+            new_input: new input to the RNN
+
+        Returns:
+            new_output: new output based on input, hidden, and cell states
+
+        """
+        at = sigmoid(
+            self.hidden_weights_a @ self.hidden_state
+            + self.input_weights_a @ new_input
+            + self.bias_a
+        )
+        bt = sigmoid(
+            self.hidden_weights_b @ self.hidden_state
+            + self.input_weights_b @ new_input
+            + self.bias_b
+        )
+        ct = np.tanh(
+            self.hidden_weights_c @ self.hidden_state
+            + self.input_weights_c @ new_input
+            + self.bias_c
+        )
+        dt = sigmoid(
+            self.hidden_weights_d @ self.hidden_state
+            + self.input_weights_d @ new_input
+            + self.bias_d
+        )
+
+        self.cell_state = self.hidden_state * at + bt * ct
+        self.hidden_state = dt * np.tanh(self.cell_state)
+
+        return self.hidden_state
+
     @property
-    def outputs(self):
-        """Property for computing 'output' for estimator. In this case, the
-        estimator seeks to estimate the unknown residual dynamics in the
-        system."""
-
-        xdot = (self.z_ego - self.z_ego_last) / self._dt
-        residual = xdot - f(self.z_ego) - g(self.z_ego) @ self.u
-
-        outputs = self.z_ego + xdot * self._dt
-
-        return outputs
+    def outputs(self) -> NDArray:
+        """Property for the hidden RNN states."""
+        return self.hidden_state
