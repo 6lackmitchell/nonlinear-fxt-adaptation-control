@@ -39,7 +39,7 @@ globals().update(
 xs = se.symbols(["x1", "x2"])
 
 # Define symbolic system dynamics
-f_symbolic = se.DenseMatrix([0, 0])
+f_symbolic = se.DenseMatrix([1, -1])
 f_residual_symbolic = se.DenseMatrix([se.sin(xs[1]), se.cos(xs[0])])
 g_symbolic = se.DenseMatrix([[0], [0]])
 g_residual_symbolic = se.DenseMatrix([[0], [0]])

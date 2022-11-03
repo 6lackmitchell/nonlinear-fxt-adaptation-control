@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt
 
 matplotlib.rcParams.update({"figure.autolayout": True})
 
-N = 2 * N_AGENTS
+N = 4 * N_AGENTS
 plt.style.use(["ggplot"])
 plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.cm.viridis(np.linspace(0, 1, N)))
 
@@ -94,23 +94,35 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
         f_err = np.array([data[a]["f_error"] for a in data.keys()])
         ii = int(data[0]["ii"] / dt) - 1
 
+    # Load baseline data -- no disturbance
+    with open(filepath + "nominal_controller_no_disturbance.pkl", "rb") as f:
+        data = pickle.load(f)
+        xr = np.array([data[a]["x"] for a in data.keys()])
+
+    # Load baseline data -- no estimation
+    with open(filepath + "nominal_controller_no_estimation.pkl", "rb") as f:
+        data = pickle.load(f)
+        xb = np.array([data[a]["x"] for a in data.keys()])
+
     # Compute derived quantities
     tf = ii * dt
     t = np.linspace(dt, tf, int(tf / dt))
+    # t = t[:-500]
 
-    t = t[:-100]
-    state_figs = generate_state_figures(t, x)
+    state_figs = generate_state_figures(t, x, xr, xb)
     estimation_figs = generate_estimation_figures(t, f_err)
 
     return state_figs + estimation_figs
 
 
-def generate_state_figures(t: NDArray, x: NDArray) -> List:
+def generate_state_figures(t: NDArray, x: NDArray, xr: NDArray, xb: NDArray) -> List:
     """Generates static figures for plotting the state trajectories.
 
     Arguments:
         t: time vector
         x: time history of the state vector
+        xr: time history of reference (no disturbance) state trajectory
+        xb: time history of baseline (no estimation) state trajectory
 
     Returns:
         figs: list to handles of figure objects
@@ -132,7 +144,16 @@ def generate_state_figures(t: NDArray, x: NDArray) -> List:
     fig_xy = plt.figure(figsize=(10, 10))
     ax_xy = fig_xy.add_subplot(111)
     set_edges_black(ax_xy)
-    ax_xy.plot(x[0, : len(t), 0], x[0, : len(t), 1])
+    ax_xy.plot(x[0, : len(t), 0], x[0, : len(t), 1], linewidth=3, label="FxT Estimation Controller")
+    ax_xy.plot(
+        xr[0, : len(t), 0], xr[0, : len(t), 1], ".-", linewidth=3, label="Reference: No Disturbance"
+    )
+    ax_xy.plot(
+        xb[0, : len(t), 0], xb[0, : len(t), 1], ":", linewidth=3, label="Baseline: No Estimation"
+    )
+    ax_xy.legend(fancybox=True)
+    ax_xy.set_xlim([-10, 10])
+    ax_xy.set_ylim([-10, 10])
 
     # Figure list
     figs = [fig, fig_xy]
@@ -162,6 +183,7 @@ def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
     ax.plot(t, f_err[0, : len(t), 9])
     ax.plot(t, f_err[0, : len(t), 10])
     ax.plot(t, f_err[0, : len(t), 11])
+    ax.set_ylim([-10, 10])
 
     # Figure list
     figs = [fig]

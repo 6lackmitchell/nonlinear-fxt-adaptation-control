@@ -54,6 +54,7 @@ def fxt_adaptation_cbf_qp_controller(idx: int) -> FxtAdaptationCbfQpController:
     return FxtAdaptationCbfQpController(
         U_MAX,
         N_AGENTS,
+        N_STATES,
         objective_minimum_deviation,
         CascadedTrackingController(idx),
         cbfs_individual,

@@ -110,7 +110,25 @@ g_symbolic = se.DenseMatrix(
 #         [0, 0, 0, (1 / JZ0 - 1 / JZ)],
 #     ]
 # )
-# Zero g residual
+
+
+# Zero residual
+# f_residual_symbolic = se.DenseMatrix(
+#     [
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#         0,
+#     ]
+# )
 g_residual_symbolic = se.DenseMatrix(
     [
         [0, 0, 0, 0],
