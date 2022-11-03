@@ -8,17 +8,17 @@ Classes:
     KoopmanGeneratorEstimator
     DataDrivenKoopmanMatrixEstimator
     DataDrivenKoopmanGeneratorEstimator
-    
+
 """
 from nptyping import NDArray
-from scipy.linalg import block_diag
+from scipy.linalg import block_diag, logm
 import numpy as np
 from collections import deque
 from core.mathematics.basis_functions import basis_functions, basis_function_gradients
 from core.networks.recurrent_neural_network import RecurrentNeuralNetwork
 
-# MONOMIAL_FACTOR = 100.0
-MONOMIAL_FACTOR = 1.0
+MONOMIAL_FACTOR = 100.0
+# MONOMIAL_FACTOR = 1.0
 
 
 class KoopmanEstimator:
@@ -40,7 +40,14 @@ class KoopmanEstimator:
 
     """
 
-    def __init__(self, n_states: int, dt: float, use_rnn: bool = False):
+    def __init__(
+        self,
+        n_states: int,
+        dt: float,
+        nominal_f: callable,
+        nominal_g: callable,
+        use_rnn: bool = False,
+    ):
         """Class initializer.
 
         Arguments:
@@ -51,6 +58,8 @@ class KoopmanEstimator:
         self._dt = dt
         self.use_rnn = use_rnn
         self.n_states = n_states
+        self.nominal_f = nominal_f
+        self.nominal_g = nominal_g
         self.n_params = len(basis_functions(np.zeros((self.n_states,))))
         self.xdot_meas = np.zeros((n_states,))
 
@@ -72,13 +81,26 @@ class KoopmanEstimator:
             self.n_params * self.n_states, self.n_params * self.n_states
         )
 
+        # *******************
+        # Adaptation gains
+        a = 1.0
+        b = 1.0
+        w = 1.0
+
+        # G = 25  # Sinusoid Example Generator Estimator -- sin bases
+        # G = 1  # Sinusoid Example Matrix Estimator -- sin bases
+        # G = 25  # Rossler Example Generator Estimator
+        # G = 1  # Rossler Example Matrix Estimator
+        G = 1  # Quadrotor Example Generator Estimator -- monomial bases
+        # G = 1  # Quadrotor Example Matrix Estimator -- monomial bases
+
         # Define adaptation gains
         self.law_gains = {
-            "a": 1.0,
-            "b": 1.0,
-            "w": 5.0,
-            "G": 25 * np.eye(self.n_params**2),
-        }  # Testing -- maybe they need to be different for each estimator
+            "a": a,
+            "b": b,
+            "w": w,
+            "G": G * np.eye(self.n_params**2),
+        }
 
         # Backup gains
         # self.law_gains = {
@@ -174,12 +196,13 @@ class KoopmanEstimator:
 
         return theta_dot
 
-    def compute_unknown_function(self, z: NDArray) -> NDArray:
+    def compute_unknown_function(self, z: NDArray, u: NDArray) -> NDArray:
         """Computes the approximate infinitesimal generator L of the
         Koopman Operator U.
 
         Arguments
-            TBD
+            z: state vector
+            u: control input vector
 
         Returns
             unknown_f_estimate: estimated unknown nonlinear function
@@ -206,8 +229,10 @@ class KoopmanEstimator:
                 np.linalg.pinv(dpxdx) @ (self.get_koopman_generator().T @ px) * MONOMIAL_FACTOR
             )
 
-        # unknown_residual_estimate = vector_field_estimate - f(z) - g(z) @ self.u
-        # vector_field_estimate = unknown_residual_estimate
+        unknown_residual_estimate = vector_field_estimate - (
+            self.nominal_f(z) + self.nominal_g(z) @ u
+        )
+        vector_field_estimate = unknown_residual_estimate
 
         return vector_field_estimate
 
@@ -353,14 +378,21 @@ class KoopmanMatrixEstimator(KoopmanEstimator):
 
     """
 
-    def __init__(self, n_states: int, dt: float, use_rnn: bool = False):
+    def __init__(
+        self,
+        n_states: int,
+        dt: float,
+        nominal_f: callable,
+        nominal_g: callable,
+        use_rnn: bool = False,
+    ):
         """Class initializer.
 
         Arguments:
             n_states: number of states (i.e. dimension of vector field)
 
         """
-        super().__init__(n_states, dt, use_rnn)
+        super().__init__(n_states, dt, nominal_f, nominal_g, use_rnn)
 
     def get_koopman_matrix(self) -> NDArray:
         """Obtains the Koopman matrix from the adapted parameters.
@@ -430,7 +462,14 @@ class KoopmanGeneratorEstimator(KoopmanEstimator):
 
     """
 
-    def __init__(self, n_states: int, dt: float, use_rnn: bool = False):
+    def __init__(
+        self,
+        n_states: int,
+        dt: float,
+        nominal_f: callable,
+        nominal_g: callable,
+        use_rnn: bool = False,
+    ):
         """Class initializer.
 
         Arguments:
@@ -438,7 +477,7 @@ class KoopmanGeneratorEstimator(KoopmanEstimator):
             n_params: number of basis functions
 
         """
-        super().__init__(n_states, dt, use_rnn)
+        super().__init__(n_states, dt, nominal_f, nominal_g, use_rnn)
 
     def _get_koopman_generator(self) -> NDArray:
         """Obtains the Koopman matrix from the adapted parameters.
