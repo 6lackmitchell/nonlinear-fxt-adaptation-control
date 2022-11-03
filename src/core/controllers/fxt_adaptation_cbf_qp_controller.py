@@ -11,7 +11,7 @@ from typing import Callable, List, Tuple
 from importlib import import_module
 import numpy as np
 from nptyping import NDArray
-from scipy.linalg import block_diag, null_space, logm
+from scipy.linalg import block_diag, null_space
 from collections import deque
 
 # from core.cbfs.cbf import Cbf
@@ -97,8 +97,8 @@ class FxtAdaptationCbfQpController(CbfQpController):
         self.function_estimation = np.zeros((self.n_states,))
 
         # Instantiate estimator
-        # self.estimator = KoopmanMatrixEstimator(nStates, self._dt)
-        self.estimator = KoopmanGeneratorEstimator(nStates, self._dt)
+        # self.estimator = KoopmanMatrixEstimator(nStates, self._dt, f, g)
+        self.estimator = KoopmanGeneratorEstimator(nStates, self._dt, f, g)
 
         # Miscellaneous parameters
         self.safety = True
@@ -156,7 +156,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
             theta = self.estimator.update_parameter_estimates(
                 self.z_ego, (self.z_ego - self.z_ego_last) / self._dt
             )
-            ffunc = self.estimator.compute_unknown_function(self.z_ego)
+            ffunc = self.estimator.compute_unknown_function(self.z_ego, self.u)
             # theta, theta_dot = self.update_parameter_estimates()
             # ffunc, ffunc_dot = self.update_unknown_function_estimate()
             # ffunc = self.estimate_uncertainty_lstsq()

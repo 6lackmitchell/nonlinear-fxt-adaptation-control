@@ -68,7 +68,8 @@ class CbfQpController(Controller):
         )
 
         # Define individual input constraints
-        self.au = block_diag(*self.n_controls * [np.array([[1, -1]]).T])
+        # self.au = block_diag(*self.n_controls * [np.array([[1, -1]]).T])
+        self.au = np.array([[1, -1]]).T
         self.bu = np.tile(np.array(self.u_max).reshape(self.n_controls, 1), 2).flatten()
 
     def _compute_control(
