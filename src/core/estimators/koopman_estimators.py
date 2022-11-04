@@ -17,8 +17,8 @@ from collections import deque
 from core.mathematics.basis_functions import basis_functions, basis_function_gradients
 from core.networks.recurrent_neural_network import RecurrentNeuralNetwork
 
-MONOMIAL_FACTOR = 100.0
-# MONOMIAL_FACTOR = 1.0
+# MONOMIAL_FACTOR = 100.0
+MONOMIAL_FACTOR = 1.0
 
 
 class KoopmanEstimator:
@@ -68,6 +68,7 @@ class KoopmanEstimator:
         self.koopman_generator = np.zeros((self.n_params, self.n_params))
 
         # Initialize parameter estimates
+        # self.theta = np.zeros((self.n_params**2,))
         self.theta = np.eye(self.n_params).reshape((self.n_params**2,))
 
         # Initialize lifted input/output matrix/vectors
@@ -85,14 +86,16 @@ class KoopmanEstimator:
         # Adaptation gains
         a = 1.0
         b = 1.0
-        w = 1.0
+        w = 5.0
 
-        # G = 25  # Sinusoid Example Generator Estimator -- sin bases
+        G = 25  # Sinusoid Example Generator Estimator -- sin bases
         # G = 1  # Sinusoid Example Matrix Estimator -- sin bases
         # G = 25  # Rossler Example Generator Estimator
         # G = 1  # Rossler Example Matrix Estimator
-        G = 1  # Quadrotor Example Generator Estimator -- monomial bases
+        # G = 1  # Quadrotor Example Generator Estimator -- monomial bases
         # G = 1  # Quadrotor Example Matrix Estimator -- monomial bases
+
+        # G = 1e-1
 
         # Define adaptation gains
         self.law_gains = {
@@ -174,8 +177,13 @@ class KoopmanEstimator:
         """
         # Generate Px and Py from input/output data
         if self.use_rnn:
+            # Update RNN states (including dpxdx which is not used here)
             px = self.rnn_px.update_rnn(self.compute_lifted_inputs(z))
             py = self.rnn_py.update_rnn(self.compute_lifted_outputs(z))
+            gradient_matrix = self.compute_basis_function_gradients(z)
+            dpxdx = self.rnn_dpxdx.update_rnn(
+                gradient_matrix.reshape((len(px) * self.n_states,))
+            ).reshape(gradient_matrix.shape)
         else:
             px = self.compute_lifted_inputs(z)
             py = self.compute_lifted_outputs(z)
@@ -205,36 +213,27 @@ class KoopmanEstimator:
             u: control input vector
 
         Returns
-            unknown_f_estimate: estimated unknown nonlinear function
+            unknown_residual_estimate: estimated unknown nonlinear function
 
         """
-        # unknown_f_estimate = (
-        #     self.compute_basis_functions(z) @ self.compute_koopman_generator()[:, : self.n_states]
-        # )
-
         if self.use_rnn:
             px = self.rnn_px.outputs
-            gradient_matrix = self.compute_basis_function_gradients(z)
-            dpxdx = self.rnn_dpxdx.update_rnn(
-                gradient_matrix.reshape((len(px) * self.n_states,))
-            ).reshape(gradient_matrix.shape)
-            vector_field_estimate = (
-                self.rnn_px.outputs @ self.get_koopman_generator()[:, : self.n_states]
-            )
+            dpxdx = self.rnn_dpxdx.outputs.reshape((self.n_params, self.n_states))
 
         else:
             px = self.compute_basis_functions(z)
             dpxdx = self.compute_basis_function_gradients(z)
-            vector_field_estimate = (
-                np.linalg.pinv(dpxdx) @ (self.get_koopman_generator().T @ px) * MONOMIAL_FACTOR
-            )
 
-        unknown_residual_estimate = vector_field_estimate - (
+        # Estimate total vector field xdot = F(x)
+        total_vector_field_estimate = (
+            np.linalg.pinv(dpxdx) @ (self.get_koopman_generator().T @ px)
+        ) * MONOMIAL_FACTOR
+
+        unknown_residual_estimate = total_vector_field_estimate - (
             self.nominal_f(z) + self.nominal_g(z) @ u
         )
-        vector_field_estimate = unknown_residual_estimate
 
-        return vector_field_estimate
+        return unknown_residual_estimate
 
     def compute_basis_functions(self, z: NDArray) -> NDArray:
         """Computes the values of the basis functions evaluated at the current
@@ -510,6 +509,13 @@ class KoopmanGeneratorEstimator(KoopmanEstimator):
 
 
 class DataDrivenKoopmanMatrixEstimator(KoopmanEstimator):
+    """Class interface to the data driven Koopman matrix estimation algorithm.
+
+    Methods:
+        estimate_uncertainty_lstsq
+
+    """
+
     def __init__(self, n_states: int, dt: float):
         """Class initializer.
 
