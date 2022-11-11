@@ -1,4 +1,5 @@
 import numpy as np
+import traceback
 from typing import Callable, List
 from nptyping import NDArray
 from pathlib import Path
@@ -120,6 +121,7 @@ class Agent:
         try:
             self.u, code, status = self.controller.compute_control(self.t, full_state)
         except Exception as e:
+            traceback.print_exc()
             return 0, e
 
         # Update Control and CBF Trajectories

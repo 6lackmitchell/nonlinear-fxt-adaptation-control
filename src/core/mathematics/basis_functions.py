@@ -151,18 +151,18 @@ def _sinusoidal_basis_functions(n_states: int) -> NDArray:
         + cos_1n
         + sin_2n
         + cos_2n
-        + sin_3n
-        + cos_3n
-        + sin_4n
-        + cos_4n
-        + sin_5n
-        + cos_5n
-        + sin_6n
-        + cos_6n
-        + sin_7n
-        + cos_7n
-        + sin_8n
-        + cos_8n
+        # + sin_3n
+        # + cos_3n
+        # + sin_4n
+        # + cos_4n
+        # + sin_5n
+        # + cos_5n
+        # + sin_6n
+        # + cos_6n
+        # + sin_7n
+        # + cos_7n
+        # + sin_8n
+        # + cos_8n
     )
 
     return se.Matrix(sinusoids), xs

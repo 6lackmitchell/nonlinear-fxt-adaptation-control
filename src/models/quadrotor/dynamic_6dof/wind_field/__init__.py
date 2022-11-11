@@ -3,7 +3,7 @@
 Loads parameters and functions for the quadrotor/dynamic_6dof wind_field situation.
 
 """
-import platform
+import os
 import builtins
 from importlib import import_module
 from core.agent import Agent
@@ -33,10 +33,10 @@ else:
 # Configure parameters
 time = [dt, tf]
 
-if platform.machine() == "aarch64":
-    save_path = "/home/6lackmitchell/Documents/datastore/warehouse/test.pkl"
-else:
+if os.path.exists("/Users/mblack"):
     save_path = "/Users/mblack/Documents/git/nonlinear-fxt-adaptation-control/data/quadrotor/dynamic_6dof/wind_field/test.pkl"
+else:
+    save_path = "/home/6lackmitchell/Documents/git/nonlinear-fxt-adaptation-control/data/quadrotor/dynamic_6dof/wind_field/test.pkl"
 
 
 # Define controllers
