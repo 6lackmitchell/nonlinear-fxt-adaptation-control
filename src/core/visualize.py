@@ -25,6 +25,7 @@ def visualize(vehicle: str, level: str, situation: str, root_dir: str) -> bool:
         "system_model": "deterministic",
     }
     mod = "models.{}.{}.{}.vis_paper".format(vehicle, level, situation)
+    # mod = "models.{}.{}.{}.vis_quick".format(vehicle, level, situation)
 
     # Problem-specific import
     module = importlib.import_module(mod)

@@ -14,9 +14,10 @@ import numpy as np
 
 #! FIND A BETTER WAY TO DO THIS!!!
 # Define Global variables
-global _MONOMIALS, _SINUSOIDS, _XS
+global _MONOMIALS, _SINUSOIDS, _RBFS, _XS
 _MONOMIALS = None
 _SINUSOIDS = None
+_RBFS = None
 _XS = None
 
 
@@ -31,20 +32,23 @@ def basis_functions(x: NDArray) -> NDArray:
         basis_values: values of the basis functions evaluated at x
 
     """
-    global _MONOMIALS, _SINUSOIDS, _XS
+    global _MONOMIALS, _SINUSOIDS, _RBFS, _XS
     # Generate symbolic wrappers
-    if (_MONOMIALS is None) or (_SINUSOIDS is None) or (_XS is None):
+    if (_MONOMIALS is None) or (_SINUSOIDS is None) or (_RBFS is None) or (_XS is None):
         _MONOMIALS, _XS = _monomial_basis_functions(len(x))
         _SINUSOIDS, _ = _sinusoidal_basis_functions(len(x))
+        _RBFS, _ = _radial_basis_functions(len(x))
 
     monomials = symbolic_bases_wrapper(_MONOMIALS, _XS)
     sinusoids = symbolic_bases_wrapper(_SINUSOIDS, _XS)
+    rbfs = symbolic_bases_wrapper(_RBFS, _XS)
 
     # Compute function values and stack them
     basis_values = np.hstack([monomials(x), sinusoids(x)])
 
-    basis_values = monomials(x)
-    # basis_values = sinusoids(x)
+    # basis_values = monomials(x)
+    basis_values = sinusoids(x)
+    # basis_values = rbfs(x)
 
     return basis_values
 
@@ -59,27 +63,30 @@ def basis_function_gradients(x: NDArray) -> NDArray:
         gradients: gradients of the basis functions at x
 
     """
-    global _MONOMIALS, _SINUSOIDS, _XS
+    global _MONOMIALS, _SINUSOIDS, _RBFS, _XS
     # Generate symbolic wrappers
-    if (_MONOMIALS is None) or (_SINUSOIDS is None) or (_XS is None):
+    if (_MONOMIALS is None) or (_SINUSOIDS is None) or (_RBFS is None) or (_XS is None):
         _MONOMIALS, _XS = _monomial_basis_functions(len(x))
         _SINUSOIDS, _ = _sinusoidal_basis_functions(len(x))
+        _RBFS, _ = _radial_basis_functions(len(x))
 
     # Generate gradients
     monomial_gradients = _basis_function_gradients(x, _XS, _MONOMIALS)
     sinusoidal_gradients = _basis_function_gradients(x, _XS, _SINUSOIDS)
+    rbf_gradients = _basis_function_gradients(x, _XS, _RBFS)
 
     gradients = np.vstack([monomial_gradients, sinusoidal_gradients])
 
-    gradients = monomial_gradients
-    # gradients = sinusoidal_gradients
+    # gradients = monomial_gradients
+    gradients = sinusoidal_gradients
+    # gradients = rbf_gradients
 
     return gradients
 
 
 # "Private" Functions -- do not need to be accessed outside module
 def _monomial_basis_functions(n_states: int):
-    """Defines the basis functions for the Koopman lifting procedure."""
+    """Defines the monomial basis functions for the Koopman lifting procedure."""
     # Define symbolic state
     xs = se.symbols([f"x{num+1}" for num in range(n_states)])
 
@@ -110,57 +117,15 @@ def _sinusoidal_basis_functions(n_states: int) -> NDArray:
     # Define symbolic state
     xs = se.symbols([f"x{num+1}" for num in range(n_states)])
 
-    # Individual basis functions
-    sin_0n = [se.sin(xs[ii]) for ii in range(len(xs))]
-    cos_0n = [se.cos(xs[ii]) for ii in range(len(xs))]
-    # sin_1n = [se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_1n = [se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_2n = [se.sin(4 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_2n = [se.cos(4 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_3n = [se.sin(6 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_3n = [se.cos(6 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_4n = [se.sin(8 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_4n = [se.cos(8 * np.pi * xs[ii]) for ii in range(len(xs))]
-
-    # # Cross basis functions
-    # cross_1 = [
-    #     se.sin(2 * np.pi * xs[ii]) * se.cos(2 * np.pi * xs[(ii + 1) % len(xs)])
-    #     for ii in range(len(xs))
-    # ]
-    # cross_2 = [
-    #     se.cos(2 * np.pi * xs[(ii - 1) % len(xs)]) * se.sin(2 * np.pi * xs[(ii + 1) % len(xs)])
-    #     for ii in range(len(xs))
-    # ]
-    # cross_3 = [xs[(ii - 1) % len(xs)] * se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cross_4 = [xs[(ii + 1) % len(xs)] * se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
-
-    # # Sinusoids
-    # sinusoids = (
-    #     sin_0n
-    #     + cos_0n
-    #     + sin_1n
-    #     + cos_1n
-    #     + sin_2n
-    #     + cos_2n
-    #     + sin_3n
-    #     + cos_3n
-    #     + sin_4n
-    #     + cos_4n
-    #     # + cross_1
-    #     # + cross_2
-    #     # + cross_3
-    #     # + cross_4
-    # )
-
     # Sin basis functions
     sin_1n = [2 ** (1 / 2) * se.sin(1 * np.pi * xs[ii]) for ii in range(len(xs))]
     sin_2n = [2 ** (1 / 2) * se.sin(2 * np.pi * xs[ii]) for ii in range(len(xs))]
     sin_3n = [2 ** (1 / 2) * se.sin(3 * np.pi * xs[ii]) for ii in range(len(xs))]
     sin_4n = [2 ** (1 / 2) * se.sin(4 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_5n = [2 ** (1 / 2) * se.sin(5 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_6n = [2 ** (1 / 2) * se.sin(6 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_7n = [2 ** (1 / 2) * se.sin(7 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # sin_8n = [2 ** (1 / 2) * se.sin(8 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_5n = [2 ** (1 / 2) * se.sin(5 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_6n = [2 ** (1 / 2) * se.sin(6 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_7n = [2 ** (1 / 2) * se.sin(7 * np.pi * xs[ii]) for ii in range(len(xs))]
+    sin_8n = [2 ** (1 / 2) * se.sin(8 * np.pi * xs[ii]) for ii in range(len(xs))]
     # sin_9n = [2 ** (1 / 2) * se.sin(9 * np.pi * xs[ii]) for ii in range(len(xs))]
     # sin_10n = [2 ** (1 / 2) * se.sin(10 * np.pi * xs[ii]) for ii in range(len(xs))]
 
@@ -169,10 +134,10 @@ def _sinusoidal_basis_functions(n_states: int) -> NDArray:
     cos_2n = [2 ** (1 / 2) * se.cos(2 * np.pi * xs[ii]) for ii in range(len(xs))]
     cos_3n = [2 ** (1 / 2) * se.cos(3 * np.pi * xs[ii]) for ii in range(len(xs))]
     cos_4n = [2 ** (1 / 2) * se.cos(4 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_5n = [2 ** (1 / 2) * se.cos(5 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_6n = [2 ** (1 / 2) * se.cos(6 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_7n = [2 ** (1 / 2) * se.cos(7 * np.pi * xs[ii]) for ii in range(len(xs))]
-    # cos_8n = [2 ** (1 / 2) * se.cos(8 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_5n = [2 ** (1 / 2) * se.cos(5 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_6n = [2 ** (1 / 2) * se.cos(6 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_7n = [2 ** (1 / 2) * se.cos(7 * np.pi * xs[ii]) for ii in range(len(xs))]
+    cos_8n = [2 ** (1 / 2) * se.cos(8 * np.pi * xs[ii]) for ii in range(len(xs))]
     # cos_9n = [2 ** (1 / 2) * se.cos(9 * np.pi * xs[ii]) for ii in range(len(xs))]
     # cos_10n = [2 ** (1 / 2) * se.cos(10 * np.pi * xs[ii]) for ii in range(len(xs))]
 
@@ -181,9 +146,42 @@ def _sinusoidal_basis_functions(n_states: int) -> NDArray:
     # )
 
     # Testing
-    sinusoids = sin_1n + cos_1n + sin_2n + cos_2n + sin_3n + cos_3n + sin_4n + cos_4n
+    sinusoids = (
+        sin_1n
+        + cos_1n
+        + sin_2n
+        + cos_2n
+        + sin_3n
+        + cos_3n
+        + sin_4n
+        + cos_4n
+        + sin_5n
+        + cos_5n
+        + sin_6n
+        + cos_6n
+        + sin_7n
+        + cos_7n
+        + sin_8n
+        + cos_8n
+    )
 
     return se.Matrix(sinusoids), xs
+
+
+def _radial_basis_functions(n_states: int):
+    """Defines the radial basis functions for the Koopman lifting procedure."""
+    # Define symbolic state
+    xs = se.symbols([f"x{num+1}" for num in range(n_states)])
+
+    # Define radial basis functions
+    gain = 0.001
+    # rbfs = [
+    #     se.exp(-gain * (xs[ii] * xs[jj]) ** 2) for ii in range(len(xs)) for jj in range(len(xs))
+    # ]
+    gain = 0.1
+    rbfs = [10 * se.exp(-gain * (xs[ii]) ** 2) for ii in range(len(xs))]
+
+    return se.Matrix(rbfs), xs
 
 
 def symbolic_bases_wrapper(symbolic_bases, symbolic_state):
@@ -230,115 +228,6 @@ def _basis_function_gradients(x: NDArray, xs: se.Matrix, bases: se.Matrix) -> ND
     gradient = symbolic_bases_wrapper(gradient_symbolic, xs)
 
     return gradient(x)
-
-
-# def basis_functions(z: NDArray, min_len: int) -> NDArray:
-#     """Computes the values of the basis functions evaluated at the current
-#     state and control values. Returns the (b x 1) vector of basis function
-#     values. May offload this to another module.
-
-#     Arguments
-#         z: input vector (may be states and controls or outputs)
-#         min_len: minimum length of input vector
-
-#     Returns
-#         basis_funcs: vector of values of basis functions
-
-#     """
-
-#     # Append zeros to input z if necessary
-#     if len(z) < min_len:
-#         z = np.concatenate([z, np.zeros((min_len - len(z),))])
-
-#     normalization_factor = 1 if np.max(abs(z)) == 0 else np.max(abs(z))
-#     z = z / normalization_factor
-
-#     # Monomial basis functions
-#     psi_1nn = z * normalization_factor  # 1st Order
-#     psi_2nn = z**2  # 2nd order
-#     psi_3nn = z**3  # 3rd Order
-#     psi_4nn = z**3 + 2 * z**2 - 3 * z - 1  # Polynomial
-#     psi_5nn = -(z**3) - 5 * z**2 + 4 * z + 2  # Polynomial
-#     psi_6nn = 2 * z**3 - 2 * z**2 + 2 * z - 2  # Polynomial
-#     psi_7nn = 1.0 * np.exp(-(z**2) / 1)
-#     psi_8nn = 1.0 * np.exp(-(z**2) / 2)
-#     psi_9nn = 1.0 * np.exp(-(z**2) / 3)
-
-#     # # Radial Basis Functions (RBFs)
-#     # k = 1.0  # Multiplier for RBF
-#     # Q = 1 / k * np.eye(len(z))  # Exponential gain for RBF
-
-#     # psi_6n1 = k * np.exp(-1 / 2 * (z @ Q @ z))  # Radial Basis Functions
-#     # psi_7nn = -k * Q @ z * np.exp(-1 / 2 * (z @ Q @ z))  # Gradient of RBF wrt z
-
-#     basis_funcs = np.hstack(
-#         [
-#             psi_1nn,
-#             psi_2nn,
-#             psi_3nn,
-#             psi_4nn,
-#             psi_5nn,
-#             psi_6nn,
-#             psi_7nn,
-#             psi_8nn,
-#             psi_9nn,
-#         ]
-#     )
-
-#     # return psi_1nn
-#     return basis_funcs
-
-
-# #! Need to make this a symbolic function!
-# def basis_function_grads(z: NDArray, min_len: int) -> NDArray:
-#     """Computes the gradients of the basis functions evaluated at the current
-#     state and control values. Returns the (b x n) matrix of basis function
-#     gradients. May offload this to another module.
-
-#     Arguments
-#         z: input vector (may be states and controls or outputs)
-#         min_len: minimum length of input vector
-
-#     Returns
-#         basis_funcs: matrix of gradients of basis functions
-
-#     """
-#     # Append zeros to input z if necessary
-#     if len(z) < min_len:
-#         z = np.concatenate([z, np.zeros((min_len - len(z),))])
-
-#     normalization_factor = 1 if np.max(abs(z)) == 0 else np.max(abs(z))
-#     z = z / normalization_factor
-
-#     # Monomial basis functions
-#     psi_1nn = np.diag(np.ones((len(z),)) * normalization_factor)  # 1st Order
-#     psi_2nn = np.diag(2 * z)  # 2nd order
-#     psi_3nn = np.diag(3 * z**2)  # 3rd Order
-
-#     psi_4nn = np.diag(3 * z**2 + 4 * z - 3)  # Polynomial
-#     psi_5nn = np.diag(-3 * (z**2) - 10 * z + 4)  # Polynomial
-#     psi_6nn = np.diag(6 * z**2 - 4 * z + 2)  # Polynomial
-
-#     psi_7nn = np.diag(-2.0 * z * np.exp(-(z**2) / 1))
-#     psi_8nn = np.diag(-1.0 * z * np.exp(-(z**2) / 2))
-#     psi_9nn = np.diag(-2.0 / 3.0 * z * np.exp(-(z**2) / 3))
-
-#     basis_func_grads = np.vstack(
-#         [
-#             psi_1nn,
-#             psi_2nn,
-#             psi_3nn,
-#             psi_4nn,
-#             psi_5nn,
-#             psi_6nn,
-#             psi_7nn,
-#             psi_8nn,
-#             psi_9nn,
-#         ]
-#     )
-
-#     # return psi_1nn
-#     return basis_func_grads
 
 
 # TESTING

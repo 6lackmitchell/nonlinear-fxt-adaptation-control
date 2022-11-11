@@ -6,6 +6,7 @@ controllers for the Rossler dynamical model (uncontrolled) for the standard situ
 """
 from typing import Tuple
 from nptyping import NDArray
+import numpy as np
 from core.controllers.controller import Controller
 
 
@@ -31,5 +32,31 @@ class ZeroController(Controller):
 
         """
         self.u = 0.0
+
+        return self.u, 1, "Optimal"
+
+
+class SinusoidController(Controller):
+    """Generates a 1D sinusoidal control input."""
+
+    def __init__(self, ego_id: int):
+        super().__init__()
+
+        self.ego_id = ego_id
+        self.complete = False
+
+    def _compute_control(self, t: float, z: NDArray) -> Tuple[int, str]:
+        """No control input in this system -- computes 0.0
+
+        Arguments:
+            t: time (in sec)
+            z: full state vector
+
+        Returns:
+            code: success (1) or error (0, -1, ...) code
+            status: more information on success or cause of error
+
+        """
+        self.u = np.sin(2 * np.pi * t)
 
         return self.u, 1, "Optimal"

@@ -14,7 +14,7 @@ from ..system import f, g
 from .timing_params import *
 from .physical_params import U_MAX
 from .objective_functions import objective_minimum_deviation
-from .nominal_controllers import ZeroController
+from .nominal_controllers import ZeroController, SinusoidController
 from .initial_conditions import z0, u0, N_AGENTS, N_STATES, N_CONTROLS
 
 if builtins.PROBLEM_CONFIG["system_model"] == "stochastic":
@@ -56,7 +56,7 @@ def fxt_adaptation_cbf_qp_controller(idx: int) -> FxtAdaptationCbfQpController:
         N_AGENTS,
         N_STATES,
         objective_minimum_deviation,
-        ZeroController(idx),
+        SinusoidController(idx),
         cbfs_individual,
         cbfs_pairwise,
     )

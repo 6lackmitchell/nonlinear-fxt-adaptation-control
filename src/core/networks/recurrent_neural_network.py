@@ -25,6 +25,7 @@ def sigmoid(x: float or NDArray):
     return sig
 
 
+#! TO DO: Implement symbolically so that the gradient can be taken properly
 class RecurrentNeuralNetwork:
     """RecurrentNeuralNetwork: class interface to recurrent neural network.
 
@@ -48,14 +49,25 @@ class RecurrentNeuralNetwork:
         self.n_outputs = n_outputs
 
         # Weights
-        self.input_weights_a = 0.1 * np.eye(n_inputs)  # Forget Weights
+        forget_weight = 0.00
+        self.input_weights_a = forget_weight * np.eye(n_inputs)
         self.input_weights_b = np.eye(n_inputs)
         self.input_weights_c = np.eye(n_inputs)
         self.input_weights_d = np.eye(n_inputs)
-        self.hidden_weights_a = 0.1 * np.eye(n_outputs)  # Forget Weights
+        self.hidden_weights_a = forget_weight * np.eye(n_outputs)
         self.hidden_weights_b = np.eye(n_outputs)
         self.hidden_weights_c = np.eye(n_outputs)
         self.hidden_weights_d = np.eye(n_outputs)
+
+        # # Random weights
+        # self.input_weights_a = forget_weight * np.eye(n_inputs)
+        # self.input_weights_b = np.random.random(n_inputs)
+        # self.input_weights_c = np.random.random(n_inputs)
+        # self.input_weights_d = np.random.random(n_inputs)
+        # self.hidden_weights_a = forget_weight * np.eye(n_outputs)
+        # self.hidden_weights_b = np.random.random(n_outputs)
+        # self.hidden_weights_c = np.random.random(n_outputs)
+        # self.hidden_weights_d = np.random.random(n_outputs)
 
         # Biases
         self.bias_a = np.random.random((n_inputs,))

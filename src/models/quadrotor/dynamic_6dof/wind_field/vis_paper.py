@@ -83,6 +83,8 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
     else:
         filename = filepath + fname
 
+    print(filename)
+
     # Load data
     with open(filename, "rb") as f:
         data = pickle.load(f)

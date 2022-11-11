@@ -12,13 +12,16 @@ from importlib import import_module
 import numpy as np
 from nptyping import NDArray
 from scipy.linalg import block_diag, null_space
-from collections import deque
 
 # from core.cbfs.cbf import Cbf
 from core.controllers.cbf_qp_controller import CbfQpController
 from core.controllers.controller import Controller
-from core.mathematics.basis_functions import basis_functions, basis_function_gradients
-from core.estimators.koopman_estimators import KoopmanMatrixEstimator, KoopmanGeneratorEstimator
+from core.mathematics.basis_functions import basis_functions
+from core.estimators.koopman_estimators import (
+    KoopmanMatrixEstimator,
+    KoopmanGeneratorEstimator,
+    DataDrivenKoopmanMatrixEstimator,
+)
 
 vehicle = builtins.PROBLEM_CONFIG["vehicle"]
 control_level = builtins.PROBLEM_CONFIG["control_level"]
@@ -31,6 +34,7 @@ globals().update({"f": getattr(module, "f")})
 globals().update({"g": getattr(module, "g")})
 globals().update({"sigma": getattr(module, "sigma_{}".format(system_model))})
 globals().update({"f_residual": getattr(module, "f_residual")})
+globals().update({"g_residual": getattr(module, "g_residual")})
 
 
 class FxtAdaptationCbfQpController(CbfQpController):
@@ -81,38 +85,30 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         # Unknown parameter properties
         n_params = len(basis_functions(np.zeros((self.n_states,)))) ** 2
-        # example_basis_fcns = basis_functions(np.zeros((self.n_states,)))
-        # self.n_params = len(example_basis_fcns) ** 2
-        # self.theta = np.eye(len(example_basis_fcns)).reshape((self.n_params,))
-        # self.theta_dot = np.zeros((self.n_params,))
         self.eta0 = 100.0 * np.ones((n_params,))  #! Lazy coding -- needs to be fixed
-        # self.M = np.zeros((len(example_basis_fcns), self.n_params))
-        # self.Mf = np.zeros((len(example_basis_fcns), self.n_states))
-        # self.ffunc = np.zeros((self.n_states,))
-        # self.ffunc_dot = np.zeros((self.n_states,))
-        # self.U_koopman = np.eye(len(example_basis_fcns))
-        # self.U_koopman_last = np.eye(len(example_basis_fcns))
-        # self.L_generator = np.zeros((len(example_basis_fcns), len(example_basis_fcns)))
+        self.vector_field_estimation = np.zeros((self.n_states,))
         self.function_estimation_error = np.zeros((self.n_states,))
         self.function_estimation = np.zeros((self.n_states,))
 
         # Instantiate estimator
         # self.estimator = KoopmanMatrixEstimator(nStates, self._dt, f, g)
-        self.estimator = KoopmanGeneratorEstimator(nStates, self._dt, f, g)
+        self.estimator = KoopmanGeneratorEstimator(nStates, self._dt, f, g, use_rnn=False)
+        # self.estimator = DataDrivenKoopmanMatrixEstimator(nStates, self._dt, f, g, use_rnn=False)
 
         # Miscellaneous parameters
         self.safety = True
         self.max_class_k = 1e6  # Maximum allowable gain for linear class K function
         self.nominal_class_k = 1.0  # Nominal value for linear class K function
-        self.discretization_error = 1.0  #! This needs to be corrected
+        self.discretization_error = 0.5  #! This needs to be corrected
         self.regressor = np.zeros((self.n_states, n_params))
 
         # CBF Parameters
         self.h = 100 * np.ones((n_cbfs,))
         self.h0 = 100 * np.ones((n_cbfs,))
-        self.dhdx = np.zeros((n_cbfs, 2 * self.n_states))  #! Lazy coding -- need to fix!!!
+        self.dhdx = np.zeros((n_cbfs, 2 * self.n_states))
         self.Lfh = np.zeros((n_cbfs,))
-        self.Lgh = np.zeros((n_cbfs, 4))  #! Lazy coding -- need to fix!!!
+        # self.Lgh = np.zeros((n_cbfs, 2))  #! SINGLE INTEGRATOR
+        self.Lgh = np.zeros((n_cbfs, 4))  #! QUADROTOR
 
     def formulate_qp(
         self, t: float, ze: NDArray, zr: NDArray, u_nom: NDArray, ego: int, cascade: bool = False
@@ -153,22 +149,18 @@ class FxtAdaptationCbfQpController(CbfQpController):
         # Update Parameter Estimates
         if t > 0:
             # Update estimates
-            theta = self.estimator.update_parameter_estimates(
-                self.z_ego, (self.z_ego - self.z_ego_last) / self._dt
+            self.estimator.update_parameter_estimates(
+                t, self.z_ego, (self.z_ego - self.z_ego_last) / self._dt
             )
             ffunc = self.estimator.compute_unknown_function(self.z_ego, self.u)
-            # theta, theta_dot = self.update_parameter_estimates()
-            # ffunc, ffunc_dot = self.update_unknown_function_estimate()
-            # ffunc = self.estimate_uncertainty_lstsq()
-            # ffunc = self.compute_unknown_function()
 
-            # residual_dynamics = self.compute_unknown_function()
-            function_estimation_error = f_residual(self.z_ego) - ffunc
+            # Transmit for nominal control design
             self.nominal_controller.residual_dynamics = ffunc
 
-            self.function_estimation_error = function_estimation_error
+            # Logging variables
+            residual = f_residual(self.z_ego_last) + g_residual(self.z_ego_last) @ self.u
+            self.function_estimation_error = residual - ffunc
             self.function_estimation = ffunc
-            # print(f"Residual Dynamics: {residual_dynamics}")
 
         # Update last measured state
         self.z_ego_last = self.z_ego
@@ -180,7 +172,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         Au, bu = self.compute_input_constraints()
 
         # Compute individual CBF constraints
-        Ai, bi = self.compute_individual_cbf_constraints(ze, ego)
+        Ai, bi = self.compute_individual_cbf_constraints(ze, ego, condition="robust")
 
         # Compute pairwise/interagent CBF constraints
         Ap, bp = self.compute_pairwise_cbf_constraints(ze, zr, ego)
@@ -239,7 +231,9 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         return Au, bu
 
-    def compute_individual_cbf_constraints(self, ze: NDArray, ego: int) -> (NDArray, NDArray):
+    def compute_individual_cbf_constraints(
+        self, ze: NDArray, ego: int, condition: str = "robust"
+    ) -> (NDArray, NDArray):
         """Computes matrix Ai and vector bi for individual CBF constraints
         of the form
 
@@ -252,6 +246,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         Arguments:
             ze: ego state
             ego: identifier of ego agent
+            condition: specifies whether to use robust or robust-adaptive condition
 
         Returns:
             Ai: individual cbf constraint matrix (nCBFs x nControls)
@@ -264,6 +259,9 @@ class FxtAdaptationCbfQpController(CbfQpController):
             (len(self.cbfs_individual), self.n_controls * self.n_agents + self.n_dec_vars)
         )
         bi = np.zeros((len(self.cbfs_individual),))
+
+        if condition == "None":
+            return Ai, bi
 
         # Iterate over individual CBF constraints
         for cc, cbf in enumerate(self.cbfs_individual):
@@ -279,11 +277,51 @@ class FxtAdaptationCbfQpController(CbfQpController):
             else:
                 stoch = 0.0
 
-            # Time-Varying Parameter Term
-            tv_term = self.compute_time_varying_cbf_term(dhdx)
+            # Robustness bounds
+            delta = self.estimator.compute_error_bound(ze)
+            bd = delta * np.sum(abs(dhdx))
 
-            # Get CBF Lie Derivatives
-            self.Lfh[cc] = dhdx @ f(ze) + stoch - self.discretization_error + tv_term
+            if condition == "robust":
+                # Get CBF Lie Derivatives
+                self.Lfh[cc] = (
+                    dhdx @ f(ze)
+                    + dhdx @ self.function_estimation
+                    - bd
+                    + stoch
+                    - self.discretization_error
+                )
+
+            elif condition == "robust-adaptive":
+
+                omega_gain = 1e6
+                n_params = self.estimator.Px.shape[1]
+                Omega = np.eye(n_params) / omega_gain
+                del_vec = delta * np.ones((n_params,))
+                self.h[cc] -= 1 / 2 * del_vec.T @ Omega @ del_vec
+                r_term = (
+                    np.trace(Omega) * delta * self.estimator.compute_error_bound_derivative(ze) + bd
+                )
+
+                # Get CBF Lie Derivatives
+                self.Lfh[cc] = (
+                    dhdx @ f(ze)
+                    + dhdx @ self.function_estimation
+                    - r_term
+                    + stoch
+                    - self.discretization_error
+                )
+
+            elif condition == "standard":
+                self.Lfh[cc] = (
+                    dhdx @ f(ze)
+                    + dhdx @ self.function_estimation
+                    + stoch
+                    - self.discretization_error
+                )
+
+            elif condition == "naive":
+                self.Lfh[cc] = dhdx @ f(ze) + stoch - self.discretization_error
+
             self.Lgh[cc, self.n_controls * ego : (ego + 1) * self.n_controls] = dhdx @ g(
                 ze
             )  # Only assign ego control

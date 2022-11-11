@@ -62,22 +62,7 @@ f_symbolic = se.DenseMatrix(
         xs[9] * xs[10] * ((JX - JY) / JZ),
     ]
 )
-f_residual_symbolic = se.DenseMatrix(
-    [
-        0,
-        0,
-        0,
-        0.01 * (xs[1] ** 2 - xs[7]) * xs[2],
-        1 * (xs[0] ** 2 + (xs[2] - 2) ** 2) * xs[3],
-        0.1 * (xs[1] - xs[2] - xs[4] ** 2) * xs[0] / MASS,
-        0,
-        0,
-        0,
-        2 * xs[10] * xs[11] * ((JY0 - JZ0) / JX0 - (JY - JZ) / JX) * xs[1],
-        -2 * xs[9] * xs[11] * ((JZ0 - JX0) / JY0 - (JZ - JX) / JY) * xs[0],
-        2 * xs[9] * xs[10] * ((JX0 - JY0) / JZ0 - (JX - JY) / JZ) * xs[0],
-    ]
-)
+
 g_symbolic = se.DenseMatrix(
     [
         [0, 0, 0, 0],
@@ -85,64 +70,13 @@ g_symbolic = se.DenseMatrix(
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [-1 / MASS, 0, 0, 0],
+        [-(1 / MASS), 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [0, 1 / JX, 0, 0],
-        [0, 0, 1 / JY, 0],
-        [0, 0, 0, 1 / JZ],
-    ]
-)
-# g_residual_symbolic = se.DenseMatrix(
-#     [
-#         [0, 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [-(1 / MASS0 - 1 / MASS), 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [0, 0, 0, 0],
-#         [0, (1 / JX0 - 1 / JX), 0, 0],
-#         [0, 0, (1 / JY0 - 1 / JY), 0],
-#         [0, 0, 0, (1 / JZ0 - 1 / JZ)],
-#     ]
-# )
-
-
-# Zero residual
-# f_residual_symbolic = se.DenseMatrix(
-#     [
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#         0,
-#     ]
-# )
-g_residual_symbolic = se.DenseMatrix(
-    [
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
+        [0, (1 / JX), 0, 0],
+        [0, 0, (1 / JY), 0],
+        [0, 0, 0, (1 / JZ)],
     ]
 )
 
@@ -167,8 +101,8 @@ f = dyn_wrapper(f_symbolic, xs)
 g = dyn_wrapper(g_symbolic, xs)
 sigma_deterministic = dyn_wrapper(s_symbolic_deterministic, xs)
 sigma_stochastic = dyn_wrapper(s_symbolic_stochastic, xs)
-f_residual = dyn_wrapper(f_residual_symbolic, xs)
-g_residual = dyn_wrapper(g_residual_symbolic, xs)
+f_residual = dyn_wrapper(f_residual_symbolic(xs), xs)
+g_residual = dyn_wrapper(g_residual_symbolic(xs), xs)
 
 # System Dynamics
 def actual_f(z: NDArray) -> NDArray:

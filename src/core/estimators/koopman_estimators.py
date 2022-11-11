@@ -55,21 +55,23 @@ class KoopmanEstimator:
             dt: simulation timestep
 
         """
+        self.t = 0.0
         self._dt = dt
         self.use_rnn = use_rnn
         self.n_states = n_states
         self.nominal_f = nominal_f
         self.nominal_g = nominal_g
         self.n_params = len(basis_functions(np.zeros((self.n_states,))))
-        self.xdot_meas = np.zeros((n_states,))
+        self.x_filter = np.zeros((n_states,))
+        self.xdot_filter = np.zeros((n_states,))
 
         # Initialize Koopman objects
         self.koopman_matrix = np.zeros((self.n_params, self.n_params))
         self.koopman_generator = np.zeros((self.n_params, self.n_params))
 
         # Initialize parameter estimates
-        # self.theta = np.zeros((self.n_params**2,))
-        self.theta = np.eye(self.n_params).reshape((self.n_params**2,))
+        self.theta = np.zeros((self.n_params**2,))
+        # self.theta = np.eye(self.n_params).reshape((self.n_params**2,))
 
         # Initialize lifted input/output matrix/vectors
         self.Px = np.zeros((self.n_params, self.n_params**2))
@@ -86,16 +88,17 @@ class KoopmanEstimator:
         # Adaptation gains
         a = 1.0
         b = 1.0
-        w = 5.0
+        w = 10.0
 
-        G = 25  # Sinusoid Example Generator Estimator -- sin bases
+        # G = 25  # Sinusoid Example Generator Estimator -- sin bases
         # G = 1  # Sinusoid Example Matrix Estimator -- sin bases
         # G = 25  # Rossler Example Generator Estimator
         # G = 1  # Rossler Example Matrix Estimator
-        # G = 1  # Quadrotor Example Generator Estimator -- monomial bases
+        # G = 1e-3  # Quadrotor Example Generator Estimator -- monomial bases
         # G = 1  # Quadrotor Example Matrix Estimator -- monomial bases
+        # G = 50  # Single integrator Generator Example
 
-        # G = 1e-1
+        G = 1e-9  # Testing quadrotor
 
         # Define adaptation gains
         self.law_gains = {
@@ -105,33 +108,11 @@ class KoopmanEstimator:
             "G": G * np.eye(self.n_params**2),
         }
 
-        # Backup gains
-        # self.law_gains = {
-        #     "a": 1.0,
-        #     "b": 1.0,
-        #     "w": 5.0,
-        #     "G": 1 * np.eye(self.n_params),
-        # }  # Works for sin/cos sinusoidal basis functions
-        # self.law_gains = {
-        #     "a": 1.0,
-        #     "b": 1.0,
-        #     "w": 5.0,
-        #     "G": 10 * np.eye(self.n_params),
-        # }  # Works for Monomial and sinusoidal basis functions
-        # self.law_gains = {
-        #     "a": 1.0,
-        #     "b": 1.0,
-        #     "w": 5.0,
-        #     "G": 1e-1 * np.eye(self.n_params),
-        # }  # Testing for quadrotor -- okay for monomials
-        # self.law_gains = {
-        #     "a": 1.0,
-        #     "b": 1.0,
-        #     "w": 5.0,
-        #     "G": 1e-3 * np.eye(self.n_params),
-        # }  # Testing for quadrotor
+        # Define initial maximum error parameters
+        self.Xi = None
+        self.last_sigma = 0
 
-    def update_parameter_estimates(self, z: NDArray, xdot_meas: NDArray) -> NDArray:
+    def update_parameter_estimates(self, t: float, z: NDArray, xdot_meas: NDArray) -> NDArray:
         """Updates parameters comprising the approximated Koopman Operator
         according to the following parameter update law:
 
@@ -141,6 +122,7 @@ class KoopmanEstimator:
         estimation error.
 
         Arguments:
+            t: time in sec
             z: state vector
             xdot_meas: last measured value of xdot
 
@@ -148,10 +130,36 @@ class KoopmanEstimator:
             theta: updated parameter estimates
 
         """
-        self.xdot_meas = xdot_meas
+        self.t = t  # update time
+
+        # Notes on noise levels
+        noise_level = 0.0  # Essentially perfect tracking of disturbance
+        # noise_level = 0.0001  # Still very close to perfect
+        # noise_level = 0.001  # You can start to see estimation error, control still good
+        # noise_level = 0.01  # This is where things start to get noticeably worse
+
+        # Inject noise/filtered information into the estimator!!
+        z += np.random.random(len(z)) * noise_level
+        xdot_meas += np.random.random(len(z)) * noise_level
+
+        # Filter the noisy measurements -- actually seems to make things worse?
+        # k = 0.001
+        # x2dot_f = (xdot_meas - self.xdot_filter) / k
+        # xdot_f = (z - self.x_filter) / k
+        # self.xdot_filter += self._dt * x2dot_f
+        # self.x_filter += self._dt * (xdot_f + x2dot_f * self._dt)
+
+        # No filtering
+        self.x_filter = z
+        self.xdot_filter = xdot_meas
+
+        # # Second order filter
+        # x2dot_f = (z - self.x_filter - 10 * k * self.xdot_filter) / k**2
+        # self.xdot_filter += self._dt * x2dot_f
+        # self.x_filter += self._dt * self.xdot_filter
 
         # Compute time-derivatives of theta parameters
-        theta_dot = self.compute_theta_dot(z)
+        theta_dot = self.compute_theta_dot(self.x_filter)
 
         # Update theta parameters according to first-order forward-Euler
         self.theta = self.theta + theta_dot * self._dt
@@ -234,6 +242,94 @@ class KoopmanEstimator:
         )
 
         return unknown_residual_estimate
+
+    def compute_error_bound(self, z: NDArray) -> float:
+        """Computes the time-varying bound on the vector field estimation error.
+
+        Arguments:
+            z: state vector
+
+        Returns:
+            bound
+
+        """
+        if self.t == 0:
+            return 0.0
+
+        a = self.law_gains["a"]
+        b = self.law_gains["b"]
+        w = self.law_gains["w"]
+        G = self.law_gains["G"]
+        Dmax = 10.0
+
+        if self.use_rnn:
+            dpxdx = self.rnn_dpxdx.outputs.reshape((self.n_params, self.n_states))
+        else:
+            dpxdx = self.compute_basis_function_gradients(z)
+
+        lamb = (2 * np.max(G)) ** (1 / 2) * (a / b) ** (w / 4)
+        sigmas = np.linalg.svd(np.linalg.pinv(dpxdx) @ self.Px)[1]
+        if self.Xi is None:
+            ell = 2 * Dmax / np.min(sigmas) * np.ones((self.Px.shape[1],))
+            self.Xi = np.arctan(
+                (b / a) ** (1 / 2) * (1 / 2 * ell.T @ np.linalg.inv(G) @ ell) ** (1 / w)
+            )
+
+        A = np.max([self.Xi - (a * b) ** (1 / 2) / w * self.t, 0])
+        # print(self.Xi / (a * b) ** (1 / 2) / w)
+
+        bound = lamb * np.max(sigmas) * np.tan(A) ** (w / 2)
+
+        return bound
+
+    def compute_error_bound_derivative(self, z: NDArray) -> float:
+        """Computes the time-derivative of the worst-case vector field estimation error.
+
+        Arguments:
+            z: state vector
+
+        Returns:
+            dbound_dt
+
+        """
+        if self.t == 0:
+            return 0.0
+
+        a = self.law_gains["a"]
+        b = self.law_gains["b"]
+        w = self.law_gains["w"]
+        G = self.law_gains["G"]
+        Dmax = 4.0
+
+        if self.use_rnn:
+            dpxdx = self.rnn_dpxdx.outputs.reshape((self.n_params, self.n_states))
+        else:
+            dpxdx = self.compute_basis_function_gradients(z)
+
+        lamb = (2 * np.max(G)) ** (1 / 2) * (a / b) ** (w / 4)
+        sigmas = np.linalg.svd(np.linalg.pinv(dpxdx) @ self.Px)[1]
+        dsigmas = (np.max(sigmas) - self.last_sigma) / self._dt
+        if self.Xi is None:
+            ell = 2 * Dmax / np.min(sigmas) * np.ones((self.Px.shape[1],))
+            self.Xi = np.arctan(
+                (b / a) ** (1 / 2) * (1 / 2 * ell.T @ np.linalg.inv(G) @ ell) ** (1 / w)
+            )
+
+        A = np.max([self.Xi - (a * b) ** (1 / 2) / w * self.t, 0])
+
+        dbound_dt = (
+            lamb * dsigmas * np.tan(A) ** (w / 2)
+            + -0.5
+            * lamb
+            * np.max(sigmas)
+            * (a * b) ** (1 / 2)
+            * np.tan(A) ** (w / 2 - 1)
+            / np.cos(A) ** 2
+        )
+
+        self.last_sigma = np.max(sigmas)
+
+        return dbound_dt
 
     def compute_basis_functions(self, z: NDArray) -> NDArray:
         """Computes the values of the basis functions evaluated at the current
@@ -448,7 +544,7 @@ class KoopmanMatrixEstimator(KoopmanEstimator):
             outputs: vector of outputs to be lifted in basis
 
         """
-        outputs = z + self.xdot_meas * self._dt
+        outputs = z + self.xdot_filter * self._dt
 
         return self.compute_basis_functions(outputs)
 
@@ -505,7 +601,7 @@ class KoopmanGeneratorEstimator(KoopmanEstimator):
         """
         dpxdx = self.compute_basis_function_gradients(z)
 
-        return dpxdx @ self.xdot_meas
+        return dpxdx @ self.xdot_filter
 
 
 class DataDrivenKoopmanMatrixEstimator(KoopmanEstimator):
@@ -516,7 +612,14 @@ class DataDrivenKoopmanMatrixEstimator(KoopmanEstimator):
 
     """
 
-    def __init__(self, n_states: int, dt: float):
+    def __init__(
+        self,
+        n_states: int,
+        dt: float,
+        nominal_f: callable,
+        nominal_g: callable,
+        use_rnn: bool = False,
+    ):
         """Class initializer.
 
         Arguments:
@@ -524,7 +627,7 @@ class DataDrivenKoopmanMatrixEstimator(KoopmanEstimator):
             dt: timestep size
 
         """
-        super().__init__(n_states, dt)
+        super().__init__(n_states, dt, nominal_f, nominal_g, use_rnn)
 
         # Deques for testing least squares approach
         self.PX = deque([], maxlen=500)

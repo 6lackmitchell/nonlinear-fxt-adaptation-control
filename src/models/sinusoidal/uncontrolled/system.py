@@ -41,8 +41,8 @@ xs = se.symbols(["x1", "x2"])
 # Define symbolic system dynamics
 f_symbolic = se.DenseMatrix([1, -1])
 f_residual_symbolic = se.DenseMatrix([se.sin(xs[1]), se.cos(xs[0])])
-g_symbolic = se.DenseMatrix([[0], [0]])
-g_residual_symbolic = se.DenseMatrix([[0], [0]])
+g_symbolic = se.DenseMatrix([[0], [1]])
+g_residual_symbolic = se.DenseMatrix([[xs[1]], [-xs[1]]])
 
 # Need to be fixed
 s_symbolic_deterministic = se.Matrix([[0 for i in range(2)] for j in range(2)])
