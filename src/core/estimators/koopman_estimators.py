@@ -17,8 +17,8 @@ from collections import deque
 from core.mathematics.basis_functions import basis_functions, basis_function_gradients
 from core.networks.recurrent_neural_network import RecurrentNeuralNetwork
 
-# MONOMIAL_FACTOR = 100.0
-MONOMIAL_FACTOR = 1.0
+MONOMIAL_FACTOR = 100.0
+# MONOMIAL_FACTOR = 1.0
 
 
 class KoopmanEstimator:
@@ -98,7 +98,10 @@ class KoopmanEstimator:
         # G = 1  # Quadrotor Example Matrix Estimator -- monomial bases
         # G = 50  # Single integrator Generator Example
 
-        G = 1e-9  # Testing quadrotor
+        G = 50  # Testing quadrotor
+        G = 10  # Testing quadrotor
+        G = 1e6  # Testing quadrotor
+        G = 1e2  # Testing quadrotor
 
         # Define adaptation gains
         self.law_gains = {
@@ -152,6 +155,8 @@ class KoopmanEstimator:
         # No filtering
         self.x_filter = z
         self.xdot_filter = xdot_meas
+        # print(xdot_meas)
+        # print(f"z: {z}")
 
         # # Second order filter
         # x2dot_f = (z - self.x_filter - 10 * k * self.xdot_filter) / k**2
@@ -209,6 +214,7 @@ class KoopmanEstimator:
 
         # Compute adaptation
         theta_dot = G @ self.Px.T @ v * (a * norm_v ** (2 / w) + b / norm_v ** (2 / w))
+        theta_dot = np.clip(theta_dot, -100, 100)
 
         return theta_dot
 
@@ -231,6 +237,8 @@ class KoopmanEstimator:
         else:
             px = self.compute_basis_functions(z)
             dpxdx = self.compute_basis_function_gradients(z)
+            # print(f"px: {px}")
+            # print(f"dpxdx: {dpxdx}")
 
         # Estimate total vector field xdot = F(x)
         total_vector_field_estimate = (

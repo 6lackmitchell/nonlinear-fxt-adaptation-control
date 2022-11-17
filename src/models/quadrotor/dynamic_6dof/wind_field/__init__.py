@@ -12,9 +12,9 @@ from core.controllers.cbf_qp_controller import CbfQpController
 from core.controllers.fxt_adaptation_cbf_qp_controller import FxtAdaptationCbfQpController
 from ..system import f, g, nControls
 from .timing_params import *
-from .physical_params import U_MAX
+from .physical_params import U_MAX, U_MIN
 from .objective_functions import objective_minimum_deviation
-from .nominal_controllers import CascadedTrackingController
+from .nominal_controllers import CascadedTrackingController, GeometricTrackingController
 from .initial_conditions import z0, u0, N_AGENTS, N_STATES, N_CONTROLS
 
 if builtins.PROBLEM_CONFIG["system_model"] == "stochastic":
@@ -53,6 +53,7 @@ def fxt_adaptation_cbf_qp_controller(idx: int) -> FxtAdaptationCbfQpController:
     """
     return FxtAdaptationCbfQpController(
         U_MAX,
+        U_MIN,
         N_AGENTS,
         N_STATES,
         objective_minimum_deviation,

@@ -33,9 +33,15 @@ JZ0 = 0.00703  # kg m^2
 
 # Estimated Vehicle Parameters
 MASS = 0.75  # kg
-JX = 0.004  # kg m^2
-JY = 0.004  # kg m^2
-JZ = 0.004  # kg m^2
+JX = 0.01  # kg m^2
+JY = 0.01  # kg m^2
+JZ = 0.01  # kg m^2
+JX = 1  # kg m^2
+JY = 1  # kg m^2
+JZ = 1  # kg m^2
+JX = JX0  # kg m^2
+JY = JY0  # kg m^2
+JZ = JZ0  # kg m^2
 
 # Control Constraints
 K1 = K2 = 1e-1
@@ -47,6 +53,7 @@ TZ_MAX = 2 * K2 * D_MAX
 
 # Control input constraints
 U_MAX = np.array([F_MAX, TX_MAX, TY_MAX, TZ_MAX])
+U_MIN = np.array([0, -TX_MAX, -TY_MAX, -TZ_MAX])
 
 # Residual Dynamics
 def f_residual_symbolic(xs: list) -> se.DenseMatrix:
@@ -64,15 +71,15 @@ def f_residual_symbolic(xs: list) -> se.DenseMatrix:
         0,
         0,
         0,
-        0.01 * (xs[1] ** 2 - xs[7]) * xs[2],
-        1 * (xs[0] ** 2 + (xs[2] - 2) ** 2) * xs[3],
-        0.1 * (xs[1] - xs[2] - xs[4] ** 2) * xs[0] / MASS,
+        0.0 * (xs[1] ** 2 - xs[7]) * xs[2],
+        0.0 * (xs[0] ** 2 + (xs[2] - 2) ** 2) * xs[3],
+        0.0 * (xs[1] - xs[2] - xs[4] ** 2) * xs[0] / MASS,
         0,
         0,
         0,
-        2 * xs[10] * xs[11] * ((JY0 - JZ0) / JX0 - (JY - JZ) / JX) * xs[1],
-        -2 * xs[9] * xs[11] * ((JZ0 - JX0) / JY0 - (JZ - JX) / JY) * xs[0],
-        2 * xs[9] * xs[10] * ((JX0 - JY0) / JZ0 - (JX - JY) / JZ) * xs[0],
+        xs[10] * xs[11] * ((JY0 - JZ0) / JX0 - (JY - JZ) / JX),
+        xs[9] * xs[11] * ((JZ0 - JX0) / JY0 - (JZ - JX) / JY),
+        xs[9] * xs[10] * ((JX0 - JY0) / JZ0 - (JX - JY) / JZ),
     ]
     return se.DenseMatrix(residual_f)
 
@@ -88,19 +95,34 @@ def g_residual_symbolic(xs: list) -> se.DenseMatrix:
         residual_g: residual matched dynamics
 
     """
+    # residual_g = [
+    #     [0, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [-1 / MASS, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [0, 0, 0, 0],
+    #     [0, 1 / JX, 0, 0],
+    #     [0, 0, 1 / JY, 0],
+    #     [0, 0, 0, 1 / JZ],
+    # ]
+
     residual_g = [
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [-1 / MASS, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
         [0, 0, 0, 0],
-        [0, 1 / JX, 0, 0],
-        [0, 0, 1 / JY, 0],
-        [0, 0, 0, 1 / JZ],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
     ]
 
     return se.DenseMatrix(residual_g)

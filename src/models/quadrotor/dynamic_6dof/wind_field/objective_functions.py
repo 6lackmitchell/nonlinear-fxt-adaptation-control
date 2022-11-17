@@ -14,8 +14,11 @@ from nptyping import NDArray
 import numpy as np
 from .physical_params import U_MAX
 
-q0 = np.array([1 / U_MAX[ii] ** 2 for ii in range(len(U_MAX))])
-q1 = 2 * np.max(q0)
+
+q = [1, 1, 1, 1]
+# q0 = np.array([1 / U_MAX[ii] ** 2 for ii in range(len(U_MAX))])
+q0 = np.array([q[ii] for ii in range(len(U_MAX))])
+q1 = 100
 
 
 def objective_minimum_deviation(u_nom: NDArray) -> Tuple[NDArray, NDArray]:
@@ -34,10 +37,11 @@ def objective_minimum_deviation(u_nom: NDArray) -> Tuple[NDArray, NDArray]:
         p: vector for linear term
 
     """
-    if len(u_nom) % len(U_MAX) == 0:
+    if len(u_nom) == len(U_MAX):
         Q = 1 / 2 * np.diag(q0)
     else:
-        Q = 1 / 2 * np.diag(list(q0) + [q1])
+        qa = (len(u_nom) - len(U_MAX)) * [q1]
+        Q = 1 / 2 * np.diag(list(q0) + qa)
 
     p = -Q @ u_nom
 

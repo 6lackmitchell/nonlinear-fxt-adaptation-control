@@ -44,6 +44,7 @@ class CbfQpController(Controller):
     def __init__(
         self,
         u_max: List,
+        u_min: List,
         nAgents: int,
         objective_function: Callable,
         nominal_controller: Controller,
@@ -53,24 +54,29 @@ class CbfQpController(Controller):
     ):
         super().__init__()
         self.u_max = u_max
+        self.u_min = u_min
         self.n_agents = nAgents
         self.objective = objective_function
         self.nominal_controller = nominal_controller
         self.cbfs_individual = cbfs_individual
         self.cbfs_pairwise = cbfs_pairwise
+
+        n_cbfs = len(cbfs_individual) + (self.n_agents - 1) * len(cbfs_pairwise)
+
         self.ignored_agents = ignore
         self.code = 0
         self.status = "Initialized"
         self.n_controls = len(u_max)
-        self.n_dec_vars = 1  # Number of additional optimization variables
-        self.cbf_vals = np.zeros(
-            (len(cbfs_individual) + (self.n_agents - 1) * len(cbfs_pairwise)),
-        )
+        self.n_dec_vars = n_cbfs  # Number of additional optimization variables
+        self.cbf_vals = np.zeros((n_cbfs,))
 
         # Define individual input constraints
-        # self.au = block_diag(*self.n_controls * [np.array([[1, -1]]).T])
         self.au = np.array([[1, -1]]).T
-        self.bu = np.tile(np.array(self.u_max).reshape(self.n_controls, 1), 2).flatten()
+        self.bu = np.ravel(np.column_stack((u_max, -u_min)))
+
+        # Constraint parameters
+        self.max_class_k = 1e6  # Maximum allowable gain for linear class K function
+        self.nominal_class_k = 1.0  # Nominal value for linear class K function
 
     def _compute_control(
         self, t: float, z: NDArray, cascaded: bool = False
@@ -202,7 +208,12 @@ class CbfQpController(Controller):
                 Lgh[self.n_controls * ego] = 0.0
 
             # Ai[cc, :], bi[cc] = self.generate_cbf_condition(cbf, h, Lfh, Lgh, cc, adaptive=True)
-            Ai[cc, :], bi[cc] = self.generate_cbf_condition(cbf, h, Lfh, Lgh, cc)
+            A_temp, bi[cc] = self.generate_cbf_condition(cbf, h, Lfh, Lgh, cc)
+
+            # Parse returns from generate condition
+            Ai[cc, : self.n_controls * na] = A_temp[:-1]  # Control terms
+            Ai[cc, self.n_controls * na + cc] = A_temp[-1]  # Alpha term
+
             self.cbf_vals[cc] = h
             if h0 < 0:
                 self.safety = False
@@ -245,9 +256,14 @@ class CbfQpController(Controller):
                     self.safety = False
 
                 update_idx = lci + cc * zr.shape[0] + ii
-                Ai[update_idx, :], bi[update_idx] = self.generate_cbf_condition(
+                A_temp, bi[update_idx] = self.generate_cbf_condition(
                     cbf, h, Lfh, Lgh, update_idx, adaptive=True
                 )
+
+                # Parse returns from generate condition
+                Ai[update_idx, : self.n_controls * na] = A_temp[:-1]  # Control terms
+                Ai[update_idx, self.n_controls * na + update_idx] = A_temp[-1]  # Alpha term
+
                 self.cbf_vals[update_idx] = h
 
         A = np.vstack([Au, Ai])
@@ -262,12 +278,12 @@ class CbfQpController(Controller):
         if self._generate_cbf_condition is not None:
             return self._generate_cbf_condition(cbf, h, Lfh, Lgh, idx, adaptive)
         else:
-            return cbf.generate_cbf_condition(h, Lfh, Lgh, adaptive)
+            return cbf.generate_cbf_condition(h, Lfh, Lgh, idx, adaptive)
 
     def assign_control(self, solution: dict, ego: int) -> None:
         """Assigns the control solution to the appropriate agent."""
         u = np.array(solution["x"][self.n_controls * ego : self.n_controls * (ego + 1)]).flatten()
-        self.u = np.clip(u, -self.u_max, self.u_max)
+        self.u = np.clip(u, self.u_min, self.u_max)
         # Assign other agents' controls if this is a centralized node
         if hasattr(self, "centralized_agents"):
             for agent in self.centralized_agents:

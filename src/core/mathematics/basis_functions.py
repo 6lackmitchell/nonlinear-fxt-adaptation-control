@@ -46,8 +46,8 @@ def basis_functions(x: NDArray) -> NDArray:
     # Compute function values and stack them
     basis_values = np.hstack([monomials(x), sinusoids(x)])
 
-    # basis_values = monomials(x)
-    basis_values = sinusoids(x)
+    basis_values = monomials(x)
+    # basis_values = sinusoids(x)
     # basis_values = rbfs(x)
 
     return basis_values
@@ -77,8 +77,8 @@ def basis_function_gradients(x: NDArray) -> NDArray:
 
     gradients = np.vstack([monomial_gradients, sinusoidal_gradients])
 
-    # gradients = monomial_gradients
-    gradients = sinusoidal_gradients
+    gradients = monomial_gradients
+    # gradients = sinusoidal_gradients
     # gradients = rbf_gradients
 
     return gradients
@@ -100,6 +100,8 @@ def _monomial_basis_functions(n_states: int):
     cross_3 = [np.product(xs)]
 
     monomials = order_1 + order_2 + order_3 + order_0 + cross_1 + cross_2 + cross_3
+    monomials = order_1 + order_2 + order_0  # + cross_1 + cross_2 + cross_3
+    # monomials = order_1  # + cross_1 + cross_2 + cross_3
 
     return se.Matrix(monomials), xs
 

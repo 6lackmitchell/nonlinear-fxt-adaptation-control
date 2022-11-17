@@ -20,7 +20,7 @@ except ModuleNotFoundError as e:
 
 # Defining Physical Params
 R = 1.0
-cx1 = -2.5
+cx1 = -2.0
 cy1 = 0.0
 cx2 = 1.25
 cy2 = -1.25
@@ -31,19 +31,49 @@ dy1 = ss[1] - cy1
 dx2 = ss[0] - cx2
 dy2 = ss[1] - cy2
 
+# Define more quantities
+phidot = f(np.zeros((len(ss),)), True)[6]
+thedot = f(np.zeros((len(ss),)), True)[7]
+
 # Speed CBF Symbolic
 h_oa1_symbolic = dx1**2 + dy1**2 - R**2
 h_oa2_symbolic = dx2**2 + dy2**2 - R**2
+h_oa3_symbolic = 5 * ss[2] + f(np.zeros((len(ss),)), True)[2]
+h_oa4_symbolic = 10 * (
+    -phidot * se.sin(ss[6]) * se.cos(ss[7])
+    - thedot * se.cos(ss[6]) * se.sin(ss[7])
+    + (se.cos(ss[6]) * se.cos(ss[7]) - np.cos(np.pi / 2) * 0.1)
+)
+# h_oa4_symbolic = -10 * (
+#     phidot * (se.sin(ss[6]) * se.cos(ss[7]))
+#     + thedot * (se.cos(ss[7]) + se.sin(ss[6]) * se.cos(ss[7]) + se.cos(ss[6]) * se.sin(ss[7]))
+#     + (se.sin(ss[7]) - se.sin(ss[6]) * se.cos(ss[7]) - se.cos(ss[6]) * se.cos(ss[7]))
+# )
+
 dhdx_oa1_symbolic = (se.DenseMatrix([h_oa1_symbolic]).jacobian(se.DenseMatrix(ss))).T
 dhdx_oa2_symbolic = (se.DenseMatrix([h_oa2_symbolic]).jacobian(se.DenseMatrix(ss))).T
+dhdx_oa3_symbolic = (se.DenseMatrix([h_oa3_symbolic]).jacobian(se.DenseMatrix(ss))).T
+dhdx_oa4_symbolic = (se.DenseMatrix([h_oa4_symbolic]).jacobian(se.DenseMatrix(ss))).T
+
 d2hdx2_oa1_symbolic = dhdx_oa1_symbolic.jacobian(se.DenseMatrix(ss))
 d2hdx2_oa2_symbolic = dhdx_oa2_symbolic.jacobian(se.DenseMatrix(ss))
+d2hdx2_oa3_symbolic = dhdx_oa3_symbolic.jacobian(se.DenseMatrix(ss))
+d2hdx2_oa4_symbolic = dhdx_oa4_symbolic.jacobian(se.DenseMatrix(ss))
+
 h_oa1_func = symbolic_cbf_wrapper_singleagent(h_oa1_symbolic, ss)
 h_oa2_func = symbolic_cbf_wrapper_singleagent(h_oa2_symbolic, ss)
+h_oa3_func = symbolic_cbf_wrapper_singleagent(h_oa3_symbolic, ss)
+h_oa4_func = symbolic_cbf_wrapper_singleagent(h_oa4_symbolic, ss)
+
 dhdx_oa1_func = symbolic_cbf_wrapper_singleagent(dhdx_oa1_symbolic, ss)
 dhdx_oa2_func = symbolic_cbf_wrapper_singleagent(dhdx_oa2_symbolic, ss)
+dhdx_oa3_func = symbolic_cbf_wrapper_singleagent(dhdx_oa3_symbolic, ss)
+dhdx_oa4_func = symbolic_cbf_wrapper_singleagent(dhdx_oa4_symbolic, ss)
+
 d2hdx2_oa1_func = symbolic_cbf_wrapper_singleagent(d2hdx2_oa1_symbolic, ss)
 d2hdx2_oa2_func = symbolic_cbf_wrapper_singleagent(d2hdx2_oa2_symbolic, ss)
+d2hdx2_oa3_func = symbolic_cbf_wrapper_singleagent(d2hdx2_oa3_symbolic, ss)
+d2hdx2_oa4_func = symbolic_cbf_wrapper_singleagent(d2hdx2_oa4_symbolic, ss)
 
 # Tau Formulation for PCA-CBF
 dvx = f(np.zeros((len(ss),)), True)[0]
@@ -59,6 +89,7 @@ d2tau1stardx2_symbolic = dtau1stardx_symbolic.jacobian(se.DenseMatrix(ss))
 tau1_star = symbolic_cbf_wrapper_singleagent(tau1_star_symbolic, ss)
 dtau1stardx = symbolic_cbf_wrapper_singleagent(dtau1stardx_symbolic, ss)
 d2tau1stardx2 = symbolic_cbf_wrapper_singleagent(d2tau1stardx2_symbolic, ss)
+
 tau2_star_symbolic = -(dx2 * dvx + dy2 * dvy) / (dvx**2 + dvy**2 + epsilon)
 dtau2stardx_symbolic = (se.DenseMatrix([tau2_star_symbolic]).jacobian(se.DenseMatrix(ss))).T
 d2tau2stardx2_symbolic = dtau2stardx_symbolic.jacobian(se.DenseMatrix(ss))
@@ -67,7 +98,7 @@ dtau2stardx = symbolic_cbf_wrapper_singleagent(dtau2stardx_symbolic, ss)
 d2tau2stardx2 = symbolic_cbf_wrapper_singleagent(d2tau2stardx2_symbolic, ss)
 
 # tau for computing PCA-CBF
-Tmax = 2.0
+Tmax = 10.0
 kh = 1000.0
 tau_star_sym = se.Symbol("tau_star", real=True)
 tau_symbolic = tau_star_sym * ramp(tau_star_sym, kh, 0.0) - (tau_star_sym - Tmax) * ramp(
@@ -80,7 +111,7 @@ dtaudtaustar = symbolic_cbf_wrapper_singleagent(dtaudtaustar_symbolic, [tau_star
 d2taudtaustar2 = symbolic_cbf_wrapper_singleagent(d2taudtaustar2_symbolic, [tau_star_sym])
 
 # Predictive Obstacle Avoidance CBF1
-h1_predictive_oa_symbolic = (dx1 + tau_sym * dvx) ** 2 + (dy1 + tau_sym * dvy) ** 2 - (2 * R) ** 2
+h1_predictive_oa_symbolic = (dx1 + tau_sym * dvx) ** 2 + (dy1 + tau_sym * dvy) ** 2 - R**2
 dhdx1_predictive_oa_symbolic = (
     se.DenseMatrix([h1_predictive_oa_symbolic]).jacobian(se.DenseMatrix(ss))
 ).T
@@ -98,7 +129,7 @@ d2h1dtaudx_predictive_oa = symbolic_cbf_wrapper_singleagent(d2h1dtaudx_predictiv
 d2h1dtau2_predictive_oa = symbolic_cbf_wrapper_singleagent(d2h1dtau2_predictive_oa_symbolic, ss)
 
 # Predictive Obstacle Avoidance CBF2
-h2_predictive_oa_symbolic = (dx1 + tau_sym * dvx) ** 2 + (dy1 + tau_sym * dvy) ** 2 - (2 * R) ** 2
+h2_predictive_oa_symbolic = (dx2 + tau_sym * dvx) ** 2 + (dy2 + tau_sym * dvy) ** 2 - R**2
 dhdx2_predictive_oa_symbolic = (
     se.DenseMatrix([h2_predictive_oa_symbolic]).jacobian(se.DenseMatrix(ss))
 ).T
@@ -286,6 +317,14 @@ def h_oa2(ego):
     return relaxation * h0_oa2(ego) + h_poa2(ego)
 
 
+def h_oa3(ego):
+    return h_oa3_func(ego)
+
+
+def h_oa4(ego):
+    return h_oa4_func(ego)
+
+
 def dhdx_oa1(ego):
     ret = relaxation * dh0dx_oa1(ego) + dhdx_poa1(ego)
 
@@ -294,6 +333,18 @@ def dhdx_oa1(ego):
 
 def dhdx_oa2(ego):
     ret = relaxation * dh0dx_oa2(ego) + dhdx_poa2(ego)
+
+    return np.squeeze(np.array(ret).astype(np.float64))
+
+
+def dhdx_oa3(ego):
+    ret = dhdx_oa3_func(ego)
+
+    return np.squeeze(np.array(ret).astype(np.float64))
+
+
+def dhdx_oa4(ego):
+    ret = dhdx_oa4_func(ego)
 
     return np.squeeze(np.array(ret).astype(np.float64))
 
@@ -307,5 +358,17 @@ def d2hdx2_oa1(ego):
 
 def d2hdx2_oa2(ego):
     ret = relaxation * d2h0dx2_oa2(ego) + d2hdx2_poa2(ego)
+
+    return np.squeeze(np.array(ret).astype(np.float64))
+
+
+def d2hdx2_oa3(ego):
+    ret = d2hdx2_oa3_func(ego)
+
+    return np.squeeze(np.array(ret).astype(np.float64))
+
+
+def d2hdx2_oa4(ego):
+    ret = d2hdx2_oa4_func(ego)
 
     return np.squeeze(np.array(ret).astype(np.float64))

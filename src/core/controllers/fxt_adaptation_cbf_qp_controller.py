@@ -62,6 +62,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
     def __init__(
         self,
         u_max: List,
+        u_min: List,
         nAgents: int,
         nStates: int,
         objective_function: Callable,
@@ -72,6 +73,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
     ):
         super().__init__(
             u_max,
+            u_min,
             nAgents,
             objective_function,
             nominal_controller,
@@ -97,9 +99,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         # Miscellaneous parameters
         self.safety = True
-        self.max_class_k = 1e6  # Maximum allowable gain for linear class K function
-        self.nominal_class_k = 1.0  # Nominal value for linear class K function
-        self.discretization_error = 0.5  #! This needs to be corrected
+        self.discretization_error = 1.0  #! This needs to be corrected
         self.regressor = np.zeros((self.n_states, n_params))
 
         # CBF Parameters
@@ -149,13 +149,14 @@ class FxtAdaptationCbfQpController(CbfQpController):
         # Update Parameter Estimates
         if t > 0:
             # Update estimates
-            self.estimator.update_parameter_estimates(
-                t, self.z_ego, (self.z_ego - self.z_ego_last) / self._dt
-            )
-            ffunc = self.estimator.compute_unknown_function(self.z_ego, self.u)
+            # self.estimator.update_parameter_estimates(
+            #     t, self.z_ego, (self.z_ego - self.z_ego_last) / self._dt
+            # )
+            # ffunc = self.estimator.compute_unknown_function(self.z_ego, self.u)
+            ffunc = np.zeros((12,))
 
-            # Transmit for nominal control design
-            self.nominal_controller.residual_dynamics = ffunc
+            # # Transmit for nominal control design
+            # self.nominal_controller.residual_dynamics = ffunc
 
             # Logging variables
             residual = f_residual(self.z_ego_last) + g_residual(self.z_ego_last) @ self.u
@@ -172,7 +173,7 @@ class FxtAdaptationCbfQpController(CbfQpController):
         Au, bu = self.compute_input_constraints()
 
         # Compute individual CBF constraints
-        Ai, bi = self.compute_individual_cbf_constraints(ze, ego, condition="robust")
+        Ai, bi = self.compute_individual_cbf_constraints(ze, ego, condition="naive")
 
         # Compute pairwise/interagent CBF constraints
         Ap, bp = self.compute_pairwise_cbf_constraints(ze, zr, ego)
@@ -197,7 +198,12 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
         """
         if self.n_dec_vars > 0:
-            Q, p = self.objective(np.append(u_nom.flatten(), self.nominal_class_k))
+            Q, p = self.objective(
+                np.concatenate(
+                    [u_nom.flatten(), np.array(self.n_dec_vars * [self.nominal_class_k])]
+                )
+            )
+            # Q, p = self.objective(np.append(u_nom.flatten(), self.nominal_class_k))
         else:
             Q, p = self.objective(u_nom.flatten())
 
@@ -325,11 +331,16 @@ class FxtAdaptationCbfQpController(CbfQpController):
             self.Lgh[cc, self.n_controls * ego : (ego + 1) * self.n_controls] = dhdx @ g(
                 ze
             )  # Only assign ego control
+            print(self.Lgh[cc, self.n_controls * ego : (ego + 1) * self.n_controls])
 
             # Generate Ai and bi from CBF and associated derivatives
-            Ai[cc, :], bi[cc] = self.generate_cbf_condition(
+            A_temp, bi[cc] = self.generate_cbf_condition(
                 cbf, self.h[cc], self.Lfh[cc], self.Lgh[cc], cc, adaptive=True
             )
+
+            # Parse returns from generate condition
+            Ai[cc, : self.n_controls * self.n_agents] = A_temp[:-1]  # Control terms
+            Ai[cc, self.n_controls * self.n_agents + cc] = A_temp[-1]  # Alpha term
 
         # Check whether any of the safety conditions are violated
         if (np.sum(self.h0[: len(self.cbfs_individual)] < 0) > 0) or (
@@ -413,9 +424,12 @@ class FxtAdaptationCbfQpController(CbfQpController):
 
                 # Generate Ap and bp from CBF and associated derivatives
                 p_idx = cc * len(self.cbfs_pairwise) + ii
-                Ap[p_idx, :], bp[p_idx] = self.generate_cbf_condition(
+                A_temp, bp[p_idx] = self.generate_cbf_condition(
                     cbf, self.h[idx], self.Lfh[idx], self.Lgh[idx], idx, adaptive=True
                 )
+
+                Ap[p_idx, : self.n_controls * self.n_agents] = A_temp[:-1]  # Control terms
+                Ap[p_idx, self.n_controls * self.n_agents + p_idx] = A_temp[-1]  # Alpha term
 
                 # Check whether any of the safety conditions are violated
         if (np.sum(self.h0[len(self.cbfs_individual) :] < 0) > 0) or (

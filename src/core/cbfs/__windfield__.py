@@ -17,6 +17,12 @@ from .symbolic_cbfs.predictive_obstacle_avoidance import (
     h_oa2,
     dhdx_oa2,
     d2hdx2_oa2,
+    h_oa3,
+    dhdx_oa3,
+    d2hdx2_oa3,
+    h_oa4,
+    dhdx_oa4,
+    d2hdx2_oa4,
 )
 
 
@@ -54,6 +60,8 @@ K_COLLISION = 1.0
 cbfs_individual = [
     Cbf(h_oa1, dhdx_oa1, d2hdx2_oa1, linear_class_k(K_DEFAULT), h0_oa1),
     Cbf(h_oa2, dhdx_oa2, d2hdx2_oa2, linear_class_k(K_DEFAULT), h0_oa2),
+    Cbf(h_oa3, dhdx_oa3, d2hdx2_oa3, linear_class_k(K_DEFAULT), h_oa3),
+    Cbf(h_oa4, dhdx_oa4, d2hdx2_oa4, linear_class_k(0.01 * K_DEFAULT), h_oa4),
 ]
 
 # cbfs_individual = []

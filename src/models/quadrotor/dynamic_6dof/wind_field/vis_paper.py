@@ -16,11 +16,14 @@ from nptyping import NDArray
 import numpy as np
 
 import matplotlib
+from matplotlib.patches import Circle
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
 # from core.visualizing.helpers import get_circle, get_ex
 
 from .initial_conditions import N_AGENTS
 from .timing_params import dt
+from ..system import f
 
 
 matplotlib.use("Qt5Agg")
@@ -94,6 +97,7 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
         k = np.array([data[a]["kgains"] if a < 3 else None for a in data.keys()][0:3])
         u0 = np.array([data[a]["u0"] for a in data.keys()])
         f_err = np.array([data[a]["f_error"] for a in data.keys()])
+        f_est = np.array([data[a]["f_est"] for a in data.keys()])
         ii = int(data[0]["ii"] / dt) - 1
 
     # Load baseline data -- no disturbance
@@ -109,12 +113,18 @@ def replay(filepath: str, fname: Optional[str] = None) -> List[matplotlib.figure
     # Compute derived quantities
     tf = ii * dt
     t = np.linspace(dt, tf, int(tf / dt))
-    # t = t[:-500]
+    # t = t[:-1000]
 
     state_figs = generate_state_figures(t, x, xr, xb)
-    estimation_figs = generate_estimation_figures(t, f_err)
+    estimation_figs = generate_estimation_figures(t, f_est, f_err)
 
-    return state_figs + estimation_figs
+    # Generate Control Figs
+    control_figs = generate_control_figures(t, u, u0)
+
+    # Generate CBF Figs
+    cbf_figs = generate_cbf_figures(t, x)
+
+    return state_figs + estimation_figs + control_figs + cbf_figs
 
 
 def generate_state_figures(t: NDArray, x: NDArray, xr: NDArray, xb: NDArray) -> List:
@@ -145,6 +155,24 @@ def generate_state_figures(t: NDArray, x: NDArray, xr: NDArray, xb: NDArray) -> 
     # Set up figure
     fig_xy = plt.figure(figsize=(10, 10))
     ax_xy = fig_xy.add_subplot(111)
+
+    # Add Obstacles
+    ax_xy.add_artist(
+        Circle(
+            (-2.0, 0.0),
+            1.0,
+            edgecolor="black",
+            facecolor=(0, 0, 0),
+        )
+    )
+    ax_xy.add_artist(
+        Circle(
+            (1.25, -1.25),
+            1.0,
+            edgecolor="black",
+            facecolor=(0, 0, 0),
+        )
+    )
     set_edges_black(ax_xy)
     ax_xy.plot(x[0, : len(t), 0], x[0, : len(t), 1], linewidth=3, label="FxT Estimation Controller")
     ax_xy.plot(
@@ -163,7 +191,7 @@ def generate_state_figures(t: NDArray, x: NDArray, xr: NDArray, xb: NDArray) -> 
     return figs
 
 
-def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
+def generate_estimation_figures(t: NDArray, f_est: NDArray, f_err: NDArray) -> List:
     """Generates static figures for plotting the state trajectories.
 
     Arguments:
@@ -179,13 +207,13 @@ def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111)
     set_edges_black(ax)
-    ax.plot(t, f_err[0, : len(t), 3])
-    ax.plot(t, f_err[0, : len(t), 4])
-    ax.plot(t, f_err[0, : len(t), 5])
-    ax.plot(t, f_err[0, : len(t), 9])
-    ax.plot(t, f_err[0, : len(t), 10])
-    ax.plot(t, f_err[0, : len(t), 11])
-    ax.set_ylim([-10, 10])
+    ax.plot(t, f_est[0, : len(t), 9])
+    ax.plot(t, f_est[0, : len(t), 10])
+    ax.plot(t, f_est[0, : len(t), 11])
+    ax.plot(t, f_est[0, : len(t), 9] + f_err[0, : len(t), 9], ":")
+    ax.plot(t, f_est[0, : len(t), 10] + f_err[0, : len(t), 10], ":")
+    ax.plot(t, f_est[0, : len(t), 11] + f_err[0, : len(t), 11], ":")
+    # ax.set_ylim([-10, 10])
 
     # Figure list
     figs = [fig]
@@ -193,433 +221,159 @@ def generate_estimation_figures(t: NDArray, f_err: NDArray) -> List:
     return figs
 
 
-# # # Set Up Road
-# d_points = 30
-# slope = 3.0
-# intercept = 0.0
-# x_points_l = np.linspace(-10, -1, d_points)
-# x_points_r = np.linspace(1, 10, d_points)
-# ax_pos.plot(x_points_l, slope * x_points_l + intercept, linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, -slope * x_points_r + intercept, linewidth=lwidth + 1, color="k")
-# x_points_l = -1 * np.ones((d_points,))
-# x_points_r = 1 * np.ones((d_points,))
-# ax_pos.plot(x_points_l, np.linspace(-3, -1, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_l, np.linspace(1, 3, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, np.linspace(-3, -1, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, np.linspace(1, 3, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(-15, -1, d_points), np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(1, 15, d_points), np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(-15, -1, d_points), -np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(1, 15, d_points), -np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# x_points_l = np.linspace(-10, -1, d_points)
-# x_points_r = np.linspace(1, 10, d_points)
-# ax_pos.plot(x_points_l, -(slope - 0.25) * x_points_l + 0.25, linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, (slope - 0.25) * x_points_r + 0.25, linewidth=lwidth + 1, color="k")
+def generate_control_figures(
+    t: NDArray,
+    u: NDArray,
+    u0: NDArray,
+) -> List:
+    """Generates static figures for plotting the state trajectories.
 
-# # ax_pos.plot(np.linspace(start_p, end_p, d_points), LW + LW / 2 * np.ones((d_points,)), linewidth=lwidth+1, color='w')
-# # ax_pos.plot(np.linspace(start_p, 0, d_points), np.linspace(start_p, 0, d_points) * s_th - LW / 2, linewidth=lwidth+1, color='w')
-# # ax_pos.plot(np.linspace(start_p, -LW / (s_th), d_points), np.linspace(start_p, -LW / (s_th), d_points) * s_th + LW / 2, linewidth=lwidth+1, color='w')
+    Arguments:
+        t: time vector
+        f_err: time history of the unknown function estimation error
 
+    Returns:
+        figs: list to handles of figure objects
 
-# for aaa in range(nAgents):
-#     if aaa == 0:
-#         lbl = "Goal"
-#     else:
-#         lbl = None
-#     ax_pos.plot(xg[aaa], yg[aaa], "*", markersize=10, label=lbl)
+    """
+    # Set up figure
+    lwidth = 5
+    fig = plt.figure(figsize=(15, 10))
+    ax1 = fig.add_subplot(411)
+    ax2 = fig.add_subplot(412)
+    ax3 = fig.add_subplot(413)
+    ax4 = fig.add_subplot(414)
+    set_edges_black(ax1)
+    set_edges_black(ax2)
+    set_edges_black(ax3)
+    set_edges_black(ax4)
 
-# # Create variable reference to plot
-# map_vid = []
-# for aa in range(nAgents):
-#     if aa == 0:
-#         lbl = "C-CBF Robot"
-#         clr = "b"
-#     elif aa == 3:
-#         lbl = "Uncontrolled Agent"
-#         clr = "r"
-#     else:
-#         lbl = None
-#         clr = None
-#     map_vid.append(ax_pos.plot([], [], linewidth=lwidth, label=lbl, color=clr)[0])
-#     map_vid.append(ax_pos.quiver([], [], [], [], linewidth=lwidth))
-#     map_vid.append(ax_pos.plot([], [], linewidth=lwidth, dashes=dash)[0])
+    # Control Plots
+    ax1.plot(t, u[0, : len(t), 0], label=r"$F$ (Test)", linewidth=lwidth)
+    ax2.plot(t, u[0, : len(t), 1], label=r"$\tau_{\phi}$ (Test)", linewidth=lwidth)
+    ax3.plot(t, u[0, : len(t), 2], label=r"$\tau_{\theta}$ (Test)", linewidth=lwidth)
+    ax4.plot(t, u[0, : len(t), 3], label=r"$\tau_{\psi}$ (Test)", linewidth=lwidth)
+    ax1.plot(t, u0[0, : len(t), 0], ":", label=r"$F$ (Test)", linewidth=lwidth)
+    ax2.plot(t, u0[0, : len(t), 1], ":", label=r"$\tau_{\phi}$ (Test)", linewidth=lwidth)
+    ax3.plot(t, u0[0, : len(t), 2], ":", label=r"$\tau_{\theta}$ (Test)", linewidth=lwidth)
+    ax4.plot(t, u0[0, : len(t), 3], ":", label=r"$\tau_{\psi}$ (Test)", linewidth=lwidth)
+    # ax1.plot(t, u_nai[0, : len(t), 0], label=r"$v_x$ (Naive CBF)", linewidth=lwidth)
+    # ax1.plot(t, u_rob[0, : len(t), 0], "-.", label=r"$v_x$ (Robust CBF)", linewidth=lwidth)
+    # ax1.plot(t, u_rad[0, : len(t), 0], ":", label=r"$v_x$ (Robust-Adaptive CBF)", linewidth=lwidth)
+    # ax2.plot(t, u_nai[0, : len(t), 1], label=r"$v_y$ (Naive CBF)", linewidth=lwidth)
+    # ax2.plot(t, u_rob[0, : len(t), 1], "-.", label=r"$v_y$ (Robust CBF)", linewidth=lwidth)
+    # ax2.plot(t, u_rad[0, : len(t), 1], ":", label=r"$v_y$ (Robust-Adaptive CBF)", linewidth=lwidth)
 
-# # Add text annotation and create variable reference
-# txt = ax_pos.text(-6.8, -13.8, "", ha="right", va="top", fontsize=24)
-# # txt_list = [ax_pos.text(x[aa, 0, 0], x[aa, 0, 1] + 0.25, '{}'.format(aa + 1),
-# #                         ha='right', va='top', fontsize=12) if (-10 < x[aa, 0, 0] < 10) and (-15 < x[aa, 0, 1] < 10) else None for aa in range(nAgents)]
+    # ax1.set_xlim([-0.1, 10])
+    # ax2.set_xlim([-0.1, 10])
+    # ax1.set_ylim([-20, 35])
+    # ax2.set_ylim([-20, 35])
+    ax1.legend(fancybox=True, fontsize=20, loc="upper right")
+    ax2.legend(fancybox=True, fontsize=20, loc="upper right")
+    ax3.legend(fancybox=True, fontsize=20, loc="upper right")
+    ax4.legend(fancybox=True, fontsize=20, loc="upper right")
+    # ax1.set(ylabel=r"$v_x$ (m\sec)")
+    # ax1.set(ylabel=r"$v_x$ (m\sec)")
+    # ax1.set(ylabel=r"$v_x$ (m\sec)")
+    ax4.set(xlabel="Time (sec)")
 
-# ax_pos.set(ylim=[-15.0, 10.0], xlim=[-10.0, 10.0], xlabel="X (m)", ylabel="Y (m)")
+    # # Font Sizes
+    # for item in (
+    #     [ax1.title, ax1.xaxis.label, ax1.yaxis.label]
+    #     + ax1.get_xticklabels()
+    #     + ax1.get_yticklabels()
+    # ):
+    #     item.set_fontsize(35)
+    # for item in (
+    #     [ax2.title, ax2.xaxis.label, ax2.yaxis.label]
+    #     + ax2.get_xticklabels()
+    #     + ax2.get_yticklabels()
+    # ):
+    #     item.set_fontsize(35)
 
-# # Plot Settings
-# for item in (
-#     [ax_pos.title, ax_pos.xaxis.label, ax_pos.yaxis.label]
-#     + ax_pos.get_xticklabels()
-#     + ax_pos.get_yticklabels()
-# ):
-#     item.set_fontsize(25)
-# # Hide X and Y axes label marks
-# ax_pos.xaxis.set_tick_params(labelbottom=False)
-# ax_pos.yaxis.set_tick_params(labelleft=False)
-# # Hide X and Y axes tick marks
-# ax_pos.set_xticks([])
-# ax_pos.set_yticks([])
-# ax_pos.legend(fancybox=True, fontsize=15)
-# ax_pos.grid(False)
+    # Figure list
+    figs = [fig]
 
-
-# def animate_ego(jj):
-#     jj = int(jj * 100)
-#     last_1_sec = 40
-#     ego_pos = x[0, jj, 0:2]
-#     for aa in range(0, 3 * nAgents, 3):
-
-#         idx = int(aa / 3)
-#         # if not (-10 < x[idx, jj, 0] < 10):
-#         #     continue
-
-#         if idx == -1:
-#             x_circ, y_circ = get_ex(x[idx, jj], 0.45, d_points)
-#         else:
-#             x_circ, y_circ = get_circle(x[idx, jj], 0.45, d_points)
-#         x_hist, y_hist = x[idx, np.max([0, jj + 1 - last_1_sec]) : jj + 1, 0:2].T
-
-#         # qax.set_offsets(np.c_[Qx[s].flatten(), Qy[s].flatten()])
-#         # qax.set_UVC(U[s], V[s])
-
-#         quiver_u = x[idx, jj, 3] * (
-#             np.cos(x[idx, jj, 2]) - np.sin(x[idx, jj, 2]) * np.tan(x[idx, jj, 4])
-#         )
-#         quiver_v = x[idx, jj, 3] * (
-#             np.sin(x[idx, jj, 2]) + np.cos(x[idx, jj, 2]) * np.tan(x[idx, jj, 4])
-#         )
-#         map_vid[aa].set_data(x_circ, y_circ)
-#         # map_vid[aa + 1].set_offsets([x[idx, jj, 0] - x[idx, 0, 0], x[idx, jj, 1] - x[idx, 0, 1]])
-#         # map_vid[aa + 1].set_UVC(quiver_u, quiver_v)
-#         # map_vid[aa + 2].set_data(x_hist, y_hist)
-#         if idx < 3:
-#             map_vid[aa].set_color("b")
-#             # map_vid[aa + 1].set_color('b')
-#             # map_vid[aa + 2].set_color('b')
-#         else:
-#             map_vid[aa].set_color("r")
-#             # map_vid[aa + 1].set_color('r')
-#             # map_vid[aa + 2].set_color('r')
-
-#     txt.set_text("{:.1f} sec".format(jj * dt))
-#     # for ee, agent_txt in enumerate(txt_list):
-#     #     if not ((-9.75 < x[ee, jj, 0] < 9.75) and (-15 < x[ee, jj, 0] < 10)):
-#     #         if agent_txt is not None:
-#     #             agent_txt.set_visible(False)
-#     #             txt_list[ee] = None
-#     #
-#     #         continue
-#     #
-#     #     if agent_txt is None:
-#     #         txt_list[ee] = ax_pos.text(x[ee, jj, 0], x[ee, jj, 1] + 0.25, '{}'.format(ee + 1),
-#     #                                     ha='right', va='top', fontsize=12)
-#     #     else:
-#     #         agent_txt.set_position((x[ee, jj, 0], x[ee, jj, 1] + 0.25))
-
-#     ax_pos.set(ylim=[-15.0, 10.0], xlim=[-10.0, 10.0])
+    return figs
 
 
-# # Create animation
-# ani = animation.FuncAnimation(
-#     fig=fig_map, func=animate_ego, frames=int(ii / 100), interval=10, repeat=False
-# )
-# # writer = animation.writers['ffmpeg']
-# # ani.save(filename[:-4] + '.mp4', writer=writer(fps=15))
+def generate_cbf_figures(t: NDArray, x: List[NDArray]) -> List:
+    """Generates static figures for plotting the state trajectories.
 
-# plt.tight_layout(pad=2.0)
-# plt.show()
+    Arguments:
+        t: time vector
+        f_err: time history of the unknown function estimation error
 
+    Returns:
+        figs: list to handles of figure objects
 
-# plt.close("all")
+    """
+    # Set up figure
+    lwidth = 5
+    fig = plt.figure(figsize=(10, 10))
+    ax1 = fig.add_subplot(111)
+    set_edges_black(ax1)
 
+    # Generate CBF Values
+    cx1 = -2.5
+    cy1 = 0.0
+    cx2 = 1.25
+    cy2 = -1.25
 
-# ############################################
-# ### Control Trajectories ###
-# fig_control = plt.figure(figsize=(8, 8))
-# ax_cont_a = fig_control.add_subplot(211)
-# ax_cont_b = fig_control.add_subplot(212)
-# set_edges_black(ax_cont_a)
-# set_edges_black(ax_cont_b)
+    # Derivatives for CBFs
+    zdot = np.array([f(x[0, ii])[2] for ii in range(len(t))])
+    phidot = np.array([f(x[0, ii])[6] for ii in range(len(t))])
+    thedot = np.array([f(x[0, ii])[7] for ii in range(len(t))])
 
-# # Angular Control Inputs
-# ax_cont_a.plot(t[1:ii], 2 * np.pi * np.ones(t[1:ii].shape), linewidth=lwidth + 1, color="k")
-# ax_cont_a.plot(t[1:ii], -2 * np.pi * np.ones(t[1:ii].shape), linewidth=lwidth + 1, color="k")
-# # ax_cont_a.plot(t[1:ii], 2 * np.pi * np.ones(t[1:ii].shape), label=r'$\pm\omega_{max}$', linewidth=lwidth+1, color='k')
-# # ax_cont_a.plot(t[1:ii], -2 * np.pi * np.ones(t[1:ii].shape), linewidth=lwidth+1, color='k')
-# for aa in range(nAgents - 6):
-#     ax_cont_a.plot(
-#         t[:ii],
-#         u[aa, :ii, 0],
-#         label="w_{}".format(aa),
-#         linewidth=lwidth,
-#         color=colors[color_idx[aa, 0]],
-#     )
-#     # ax_cont_a.plot(t[:ii], u0[aa, :ii, 0], label='w_{}^0'.format(aa), linewidth=lwidth,
-#     #                color=colors[color_idx[aa, 1]], dashes=dash)
-# ax_cont_a.set(
-#     ylabel="w",  # ylabel=r'$\omega$',
-#     ylim=[np.min(u[:ii, :, 0]) - 0.1, np.max(u[:ii, :, 0]) + 0.1],
-#     title="Control Inputs",
-# )
+    h_1 = (x[0, : len(t), 0] - cx1) ** 2 + (x[0, : len(t), 1] - cy1) ** 2 - 1
+    h_2 = (x[0, : len(t), 0] - cx2) ** 2 + (x[0, : len(t), 1] - cy2) ** 2 - 1
+    h_3 = 5 * x[0, : len(t), 2] + zdot
+    h_4 = 100 * (
+        -phidot * np.sin(x[0, : len(t), 6]) * np.cos(x[0, : len(t), 7])
+        - thedot * np.cos(x[0, : len(t), 6]) * np.sin(x[0, : len(t), 7])
+        + (np.cos(x[0, : len(t), 6]) * np.cos(x[0, : len(t), 7]) - np.cos(np.pi / 2)) * 0.1
+    )
+    h_4_0 = np.cos(x[0, : len(t), 6]) * np.cos(x[0, : len(t), 7]) - np.cos(np.pi / 2)
 
-# # Acceleration Inputs
-# # ax_cont_b.plot(t[1:ii], 9.81 * np.ones(t[1:ii].shape), label=r'$\pm a_{max}$', linewidth=lwidth+1, color='k')
-# # ax_cont_b.plot(t[1:ii], -9.81 * np.ones(t[1:ii].shape), linewidth=lwidth+1, color='k')
-# ax_cont_b.plot(t[1:ii], 9.81 * np.ones(t[1:ii].shape), linewidth=lwidth + 1, color="k")
-# ax_cont_b.plot(t[1:ii], -9.81 * np.ones(t[1:ii].shape), linewidth=lwidth + 1, color="k")
-# for aa in range(nAgents - 6):
-#     ax_cont_b.plot(
-#         t[:ii],
-#         u[aa, :ii, 1],
-#         label="a_{}".format(aa),
-#         linewidth=lwidth,
-#         color=colors[color_idx[aa, 0]],
-#     )
-#     # ax_cont_b.plot(t[:ii], u0[aa, :ii, 1], label='a_{}^0'.format(aa), linewidth=lwidth,
-#     #                color=colors[color_idx[aa, 1]], dashes=dash)
-# ax_cont_b.set(
-#     ylabel="a", ylim=[np.min(u[:ii, :, 1]) - 0.5, np.max(u[:ii, :, 1]) + 0.5]  # ylabel=r'$a_r$',
-# )
+    # CBF Plots
+    ax1.plot(t, np.zeros((len(t),)), "k", label="Boundary", linewidth=lwidth)
+    ax1.plot(t, h_1, label=r"$h_1$ (Test CBF)", linewidth=lwidth)
+    ax1.plot(t, h_2, label=r"$h_2$ (Test CBF)", linewidth=lwidth)
+    ax1.plot(t, h_3, label=r"$h_3$ (Test CBF)", linewidth=lwidth)
+    ax1.plot(t, h_4_0, label=r"$h_4$ (Test CBF)", linewidth=lwidth)
 
-# # Plot Settings
-# for item in (
-#     [ax_cont_a.title, ax_cont_a.xaxis.label, ax_cont_a.yaxis.label]
-#     + ax_cont_a.get_xticklabels()
-#     + ax_cont_a.get_yticklabels()
-# ):
-#     item.set_fontsize(25)
-# # ax_cont_a.legend(fancybox=True)
-# ax_cont_a.grid(True, linestyle="dotted", color="white")
+    # # Inset Axis 1
+    # ax_inset1 = inset_axes(
+    #     ax1,
+    #     width="100%",
+    #     height="100%",
+    #     bbox_to_anchor=(0.7, 0.05, 0.25, 0.2),
+    #     bbox_transform=ax1.transAxes,
+    #     loc=3,
+    # )
+    # set_edges_black(ax_inset1)
+    # ax_inset1.plot(t, np.zeros((len(t),)), "k", label="Boundary", linewidth=lwidth)
+    # ax_inset1.plot(t, h_1, label=r"$h_1$ (Naive CBF)", linewidth=lwidth)
+    # ax_inset1.plot(t, h_2, label=r"$h_2$ (Naive CBF)", linewidth=lwidth)
+    # ax_inset1.set_xlim([7.5, 8.5])
+    # ax_inset1.set_ylim([-0.2, 0.2])
+    # ax_inset1.set(xticklabels=[], yticklabels=[])
+    # mark_inset(ax1, ax_inset1, loc1=4, loc2=2, fc="none", ec="0.2", lw=1.5)
 
-# for item in (
-#     [ax_cont_b.title, ax_cont_b.xaxis.label, ax_cont_b.yaxis.label]
-#     + ax_cont_b.get_xticklabels()
-#     + ax_cont_b.get_yticklabels()
-# ):
-#     item.set_fontsize(25)
-# # ax_cont_b.legend(fancybox=True)
-# ax_cont_b.grid(True, linestyle="dotted", color="white")
+    ax1.set_xlim([-0.1, 15])
+    # ax1.set_ylim([-0.1, 25])
+    ax1.legend(fancybox=True, fontsize=27, loc="upper right")
+    ax1.set(xlabel="Time (sec)", ylabel=r"CBF Values")
 
-# plt.tight_layout(pad=2.0)
+    # Font Sizes
+    for item in (
+        [ax1.title, ax1.xaxis.label, ax1.yaxis.label]
+        + ax1.get_xticklabels()
+        + ax1.get_yticklabels()
+    ):
+        item.set_fontsize(35)
 
-# ############################################
-# ### Gain Trajectories ###
-# fig_k = plt.figure(figsize=(8, 8))
-# ax_k = fig_k.add_subplot(111)
-# set_edges_black(ax_k)
+    # Figure list
+    figs = [fig]
 
-# # Angular Control Inputs
-# lbl = [
-#     "Corridor",
-#     "Speed",
-#     "Agent2",
-#     "Agent3",
-#     "Agent4",
-#     "Agent5",
-#     "Agent6",
-#     "Agent7",
-#     "Agent8",
-#     "Agent9",
-# ]
-# clr = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-# clr.reverse()
-# for cbf in range(10):
-#     ax_k.plot(
-#         t[1:ii], k[0, 1:ii, cbf], linewidth=lwidth + 1, color=clr[int(1.5 * cbf)], label=lbl[cbf]
-#     )
-#     # ax_k.plot(t[1:ii], k[1, 1:ii, cbf], linewidth=lwidth + 1, color=clr[int(1.5 * cbf)], label=lbl[cbf])
-#     # ax_k.plot(t[1:ii], k[2, 1:ii, cbf], linewidth=lwidth + 1, color=clr[int(1.5 * cbf)], label=lbl[cbf])
-# ax_k.set(ylabel="k", title="Adaptation Gains")
-
-# # Plot Settings
-# for item in (
-#     [ax_k.title, ax_k.xaxis.label, ax_k.yaxis.label]
-#     + ax_k.get_xticklabels()
-#     + ax_k.get_yticklabels()
-# ):
-#     item.set_fontsize(25)
-# ax_k.legend(fancybox=True)
-# ax_k.grid(True, linestyle="dotted", color="white")
-
-# plt.tight_layout(pad=2.0)
-
-
-# # ############################################
-# # ### CBF Trajectories ###
-# # fig_cbfs = plt.figure(figsize=(8, 8))
-# # ax_cbfs = fig_cbfs.add_subplot(111)
-# # set_edges_black(ax_cbfs)
-
-# # # NN-CBF Values
-# # ax_cbfs.plot(t[1:ii], np.zeros(t[1:ii].shape), linewidth=lwidth+1, color='k')
-# # for aa in range(cbf.shape[0]):
-# #     ax_cbfs.plot(t[:ii], cbf[aa, :ii, 0], label='h_{}'.format(aa), linewidth=lwidth,
-# #                    color=colors[color_idx[aa, 0]])
-# #     # ax_cbfs.plot(t[:ii], cbf[aa, :ii, 1], label='h_{}^0'.format(aa), linewidth=lwidth,
-# #     #                color=colors[color_idx[aa, 1]], dashes=dash)
-# # ax_cbfs.set(ylabel='h',
-# #             ylim=[-0.1, 250],
-# #             title='CBF Trajectories')
-
-# # # Plot Settings
-# # for item in ([ax_cbfs.title, ax_cbfs.xaxis.label, ax_cbfs.yaxis.label] +
-# #              ax_cbfs.get_xticklabels() + ax_cbfs.get_yticklabels()):
-# #     item.set_fontsize(25)
-# # ax_cbfs.legend(fancybox=True)
-# # ax_cbfs.grid(True, linestyle='dotted', color='white')
-
-# # plt.tight_layout(pad=2.0)
-
-
-# ############################################
-# ### State Trajectories ###
-# # plt.style.use(['dark_background'])
-# fig_map = plt.figure(figsize=(10, 10))
-# ax_pos = fig_map.add_subplot(111)
-# set_edges_black(ax_pos)
-
-# # # Set Up Road
-# d_points = 30
-# slope = 3.0
-# intercept = 0.0
-# x_points_l = np.linspace(-10, -1, d_points)
-# x_points_r = np.linspace(1, 10, d_points)
-# ax_pos.plot(x_points_l, slope * x_points_l + intercept, linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, -slope * x_points_r + intercept, linewidth=lwidth + 1, color="k")
-# x_points_l = -1 * np.ones((d_points,))
-# x_points_r = 1 * np.ones((d_points,))
-# ax_pos.plot(x_points_l, np.linspace(-3, -1, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_l, np.linspace(1, 3, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, np.linspace(-3, -1, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, np.linspace(1, 3, d_points), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(-15, -1, d_points), np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(1, 15, d_points), np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(-15, -1, d_points), -np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# ax_pos.plot(np.linspace(1, 15, d_points), -np.ones((d_points,)), linewidth=lwidth + 1, color="k")
-# x_points_l = np.linspace(-10, -1, d_points)
-# x_points_r = np.linspace(1, 10, d_points)
-# ax_pos.plot(x_points_l, -(slope - 0.25) * x_points_l + 0.25, linewidth=lwidth + 1, color="k")
-# ax_pos.plot(x_points_r, (slope - 0.25) * x_points_r + 0.25, linewidth=lwidth + 1, color="k")
-
-# # ax_pos.plot(np.linspace(start_p, end_p, d_points), LW + LW / 2 * np.ones((d_points,)), linewidth=lwidth+1, color='w')
-# # ax_pos.plot(np.linspace(start_p, 0, d_points), np.linspace(start_p, 0, d_points) * s_th - LW / 2, linewidth=lwidth+1, color='w')
-# # ax_pos.plot(np.linspace(start_p, -LW / (s_th), d_points), np.linspace(start_p, -LW / (s_th), d_points) * s_th + LW / 2, linewidth=lwidth+1, color='w')
-
-
-# for aaa in range(nAgents):
-#     if aaa == 0:
-#         lbl = "Goal"
-#     else:
-#         lbl = None
-#     ax_pos.plot(xg[aaa], yg[aaa], "*", markersize=10, label=lbl)
-
-# # Create variable reference to plot
-# map_vid = []
-# for aa in range(nAgents):
-#     if aa == 0:
-#         lbl = "C-CBF Robot"
-#         clr = "b"
-#     elif aa == 3:
-#         lbl = "Uncontrolled Agent"
-#         clr = "r"
-#     else:
-#         lbl = None
-#         clr = None
-#     map_vid.append(ax_pos.plot([], [], linewidth=lwidth, label=lbl, color=clr)[0])
-#     map_vid.append(ax_pos.quiver([], [], [], [], linewidth=lwidth))
-#     map_vid.append(ax_pos.plot([], [], linewidth=lwidth, dashes=dash)[0])
-
-# # Add text annotation and create variable reference
-# txt = ax_pos.text(-6.8, -13.8, "", ha="right", va="top", fontsize=24)
-# # txt_list = [ax_pos.text(x[aa, 0, 0], x[aa, 0, 1] + 0.25, '{}'.format(aa + 1),
-# #                         ha='right', va='top', fontsize=12) if (-10 < x[aa, 0, 0] < 10) and (-15 < x[aa, 0, 1] < 10) else None for aa in range(nAgents)]
-
-# ax_pos.set(ylim=[-15.0, 10.0], xlim=[-10.0, 10.0], xlabel="X (m)", ylabel="Y (m)")
-
-# # Plot Settings
-# for item in (
-#     [ax_pos.title, ax_pos.xaxis.label, ax_pos.yaxis.label]
-#     + ax_pos.get_xticklabels()
-#     + ax_pos.get_yticklabels()
-# ):
-#     item.set_fontsize(25)
-# # Hide X and Y axes label marks
-# ax_pos.xaxis.set_tick_params(labelbottom=False)
-# ax_pos.yaxis.set_tick_params(labelleft=False)
-# # Hide X and Y axes tick marks
-# ax_pos.set_xticks([])
-# ax_pos.set_yticks([])
-# ax_pos.legend(fancybox=True, fontsize=15)
-# ax_pos.grid(False)
-
-
-# def animate_ego(jj):
-#     jj = int(jj * 100)
-#     last_1_sec = 40
-#     ego_pos = x[0, jj, 0:2]
-#     for aa in range(0, 3 * nAgents, 3):
-
-#         idx = int(aa / 3)
-#         # if not (-10 < x[idx, jj, 0] < 10):
-#         #     continue
-
-#         if idx == -1:
-#             x_circ, y_circ = get_ex(x[idx, jj], 0.45, d_points)
-#         else:
-#             x_circ, y_circ = get_circle(x[idx, jj], 0.45, d_points)
-#         x_hist, y_hist = x[idx, np.max([0, jj + 1 - last_1_sec]) : jj + 1, 0:2].T
-
-#         # qax.set_offsets(np.c_[Qx[s].flatten(), Qy[s].flatten()])
-#         # qax.set_UVC(U[s], V[s])
-
-#         quiver_u = x[idx, jj, 3] * (
-#             np.cos(x[idx, jj, 2]) - np.sin(x[idx, jj, 2]) * np.tan(x[idx, jj, 4])
-#         )
-#         quiver_v = x[idx, jj, 3] * (
-#             np.sin(x[idx, jj, 2]) + np.cos(x[idx, jj, 2]) * np.tan(x[idx, jj, 4])
-#         )
-#         map_vid[aa].set_data(x_circ, y_circ)
-#         # map_vid[aa + 1].set_offsets([x[idx, jj, 0] - x[idx, 0, 0], x[idx, jj, 1] - x[idx, 0, 1]])
-#         # map_vid[aa + 1].set_UVC(quiver_u, quiver_v)
-#         # map_vid[aa + 2].set_data(x_hist, y_hist)
-#         if idx < 3:
-#             map_vid[aa].set_color("b")
-#             # map_vid[aa + 1].set_color('b')
-#             # map_vid[aa + 2].set_color('b')
-#         else:
-#             map_vid[aa].set_color("r")
-#             # map_vid[aa + 1].set_color('r')
-#             # map_vid[aa + 2].set_color('r')
-
-#     txt.set_text("{:.1f} sec".format(jj * dt))
-#     # for ee, agent_txt in enumerate(txt_list):
-#     #     if not ((-9.75 < x[ee, jj, 0] < 9.75) and (-15 < x[ee, jj, 0] < 10)):
-#     #         if agent_txt is not None:
-#     #             agent_txt.set_visible(False)
-#     #             txt_list[ee] = None
-#     #
-#     #         continue
-#     #
-#     #     if agent_txt is None:
-#     #         txt_list[ee] = ax_pos.text(x[ee, jj, 0], x[ee, jj, 1] + 0.25, '{}'.format(ee + 1),
-#     #                                     ha='right', va='top', fontsize=12)
-#     #     else:
-#     #         agent_txt.set_position((x[ee, jj, 0], x[ee, jj, 1] + 0.25))
-
-#     ax_pos.set(ylim=[-15.0, 10.0], xlim=[-10.0, 10.0])
-
-
-# # Create animation
-# ani = animation.FuncAnimation(
-#     fig=fig_map, func=animate_ego, frames=int(ii / 100), interval=10, repeat=False
-# )
-# # writer = animation.writers['ffmpeg']
-# # ani.save(filename[:-4] + '.mp4', writer=writer(fps=15))
-
-# plt.tight_layout(pad=2.0)
-# plt.show()
+    return figs
