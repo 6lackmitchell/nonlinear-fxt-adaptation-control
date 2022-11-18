@@ -2,6 +2,7 @@
 
 import numpy as np
 import builtins
+from core.mathematics.analytical_functions import wrapToPi
 
 
 def simulate(tf: float, dt: float, vehicle: str, level: str, situation: str) -> bool:
@@ -112,6 +113,10 @@ def simulate(tf: float, dt: float, vehicle: str, level: str, situation: str) -> 
 
             # Step dynamics forward
             z[ii + 1, aa, :] = agent.step_dynamics()
+
+            if vehicle == "quadrotor":
+                z[ii + 1, aa, 6:9] = wrapToPi(z[ii + 1, aa, 6:9])
+                agent.update(z[ii + 1, aa])
 
         if not code:
             broken = True

@@ -246,10 +246,10 @@ class GeometricTrackingController(Controller):
         # "kv": 5.6,  # Velocity error gain
         # "kR": 8.81,  # Attitude error gain
         # "kO": 2.54,  # Omega error gain
-        "kx": 15.0,  # Position error gain
-        "kv": 0.1,  # Velocity error gain
-        "kR": 0.1,  # Attitude error gain
-        "kO": 0.1,  # Omega error gain
+        "kx": 10.0,  # Position error gain
+        "kv": 1.0,  # Velocity error gain
+        "kR": 1.0,  # Attitude error gain
+        "kO": 1.0,  # Omega error gain
         "f_gerono": 1 / 20,  # Gerono lemniscate frequency (Hz)
         "a_gerono": 5.0,  # Gerono lemniscate gain
     }
@@ -293,14 +293,14 @@ class GeometricTrackingController(Controller):
         e3 = np.array([0, 0, 1])
 
         # Get rotation matrix
-        inertial_to_body_rotation = rotation_body_frame_to_inertial_frame(ze).T
+        body_to_inertial_rotation = rotation_body_frame_to_inertial_frame(ze)
 
         # Compute desired position, velocity, and acceleration
         pos_d, vel_d, acc_d = self.get_desired_pos_vel_acc(t, ze)
 
         # Define tracking errors
         e_pos = ze[:3] - pos_d
-        e_vel = inertial_to_body_rotation.T @ ze[3:6] - vel_d
+        e_vel = body_to_inertial_rotation @ ze[3:6] - vel_d
 
         # Compute desired direction
         vel_weight = 0.5
@@ -317,7 +317,7 @@ class GeometricTrackingController(Controller):
         rot_d = np.array([b1_d, b2_d, b3_d]).T  #! this is a potential source of error
 
         # Compute attitute tracking error
-        ss_mat = rot_d.T @ inertial_to_body_rotation - inertial_to_body_rotation.T @ rot_d
+        ss_mat = rot_d.T @ body_to_inertial_rotation - body_to_inertial_rotation.T @ rot_d
         e_rot = 1 / 2 * np.array([ss_mat[2, 1], ss_mat[0, 2], ss_mat[1, 0]])
 
         # Compute angular velocity tracking error
@@ -337,13 +337,12 @@ class GeometricTrackingController(Controller):
             Omega_d = np.zeros((3,))
             Omega_d_dot = np.zeros((3,))
 
-        e_ome = Omega - inertial_to_body_rotation.T @ rot_d @ Omega_d
+        e_ome = Omega - body_to_inertial_rotation.T @ rot_d @ Omega_d
 
         # Compute control inputs
-        force = (
-            -(MASS * acc_d - kx * e_pos - kv * e_vel - MASS * GRAVITY * e3)
-            @ inertial_to_body_rotation
-            @ e3
+        force = np.dot(
+            -kx * e_pos - kv * e_vel - MASS * GRAVITY * e3 + MASS * acc_d,
+            body_to_inertial_rotation @ e3,
         )
         force = np.clip(force, 0, 30)
 
@@ -357,8 +356,8 @@ class GeometricTrackingController(Controller):
             + np.cross(Omega, j_vec * Omega)
             - j_vec
             * (
-                Omega_hat @ inertial_to_body_rotation.T @ rot_d @ Omega_d
-                - inertial_to_body_rotation.T @ rot_d @ Omega_d_dot
+                Omega_hat @ body_to_inertial_rotation.T @ rot_d @ Omega_d
+                - body_to_inertial_rotation.T @ rot_d @ Omega_d_dot
             )
         )
 
@@ -374,80 +373,6 @@ class GeometricTrackingController(Controller):
         self.Omega_d = Omega_d
 
         return self.u, 1, "Optimal"
-
-    def compute_force_command(self, zddot: float, rotation: NDArray) -> float:
-        """Computes the force control for the quadrotor tracking controller. The
-        force control is the first level of the cascaded controller, and the
-        moments depend on the computed force value.
-
-        Arguments:
-            zddot: desired acceleration (in m/s^2) in the positive z direction
-            rotation: body to inertial frame rotation matrix
-
-        Returns:
-            force: control input in N
-
-        """
-        force = MASS * (GRAVITY + zddot) / -rotation[2, 2]
-
-        return np.clip(force, 0, U_MAX[0])
-
-    def compute_moment_commands(
-        self, t: float, ze: NDArray, force: float, xddot: float, yddot: float, rotation: NDArray
-    ) -> Tuple[float, float, float]:
-        """Computes the force control for the quadrotor tracking controller. The
-        force control is the first level of the cascaded controller, and the
-        moments depend on the computed force value.
-
-        Arguments:
-            t: time (in sec)
-            ze: ego vehicle state vector
-            force: thrust force (in N) computed by first level of cascaded controller
-            xddot: desired acceleration (in m/s^2) in the inertial x direction
-            yddot: desired acceleration (in m/s^2) in the inertial y direction
-            rotation: rotation matrix from body-fixed frame to inertial frame
-
-        Returns:
-            pitch_moment
-            roll_moment
-            yaw_moment
-
-        """
-        pitch_moment = 0.0
-        roll_moment = 0.0
-        yaw_moment = 0.0
-
-        theta = 0.0  ## NEED TO FIX: this is not correct
-
-        if force > 0.0:
-            R13_c = -MASS * xddot / force
-            R23_c = -MASS * yddot / force
-            R33_c = theta + np.pi / 2
-
-            tc_R = 0.25 * self.CONTROL_GAINS["tau_f"]
-            # if t > 1.0:
-            # tc_Rf = 0.1 * self.CONTROL_GAINS["tau_f"]
-            # tc_R = tc_Rf + (self.CONTROL_GAINS["tau_m"] - tc_Rf) * np.exp(
-            #     -self.CONTROL_GAINS["rate"] * (t - 1.0)
-            # )
-            # tc_R = 0.5 * self.CONTROL_GAINS["tau_f"]
-
-            R13dot_c = -(rotation[0, 2] - R13_c) / (tc_R)
-            R23dot_c = -(rotation[1, 2] - R23_c) / (tc_R)
-
-            p_c = -R13dot_c * rotation[0, 1] - R23dot_c * rotation[1, 1] - self.residual_dynamics[9]
-            q_c = R13dot_c * rotation[0, 0] + R23dot_c * rotation[1, 2] - self.residual_dynamics[10]
-            r_c = 0 - self.residual_dynamics[11]  # -k_r * (ze[8] - theta + np.pi/2)
-
-            pitch_moment = (
-                -self.CONTROL_GAINS["k_phi"] * (ze[9] - p_c) * JX - (JY - JZ) * ze[10] * ze[11]
-            )
-            roll_moment = (
-                -self.CONTROL_GAINS["k_theta"] * (ze[10] - q_c) * JY - (JZ - JX) * ze[9] * ze[11]
-            )
-            yaw_moment = 0  # -k_psi * (ze[11] - r_c) * Jz - (Jx - Jy)*ze[9]*ze[10]
-
-        return ()
 
     def get_desired_pos_vel_acc(self, t: float, ze: NDArray) -> NDArray:
         """Computes the desired position, velocity, and acceleration of the
@@ -474,21 +399,21 @@ class GeometricTrackingController(Controller):
         zdot_c = 0.0
         zddot_c = 0.0
 
-        # Gerono Lemniscate Trajectory -- override takeoff when altitude sufficiently high
-        if ze[2] > 1.0:
-            B = 2 * np.pi * self.CONTROL_GAINS["f_gerono"]
+        # # Gerono Lemniscate Trajectory -- override takeoff when altitude sufficiently high
+        # if ze[2] > 1.0:
+        #     B = 2 * np.pi * self.CONTROL_GAINS["f_gerono"]
 
-            x_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
-            y_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
+        #     x_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
+        #     y_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
 
-            xdot_c = B * self.CONTROL_GAINS["a_gerono"] * np.cos(B * t)
-            ydot_c = B * self.CONTROL_GAINS["a_gerono"] * (np.cos(B * t) ** 2 - np.sin(B * t) ** 2)
+        #     xdot_c = B * self.CONTROL_GAINS["a_gerono"] * np.cos(B * t)
+        #     ydot_c = B * self.CONTROL_GAINS["a_gerono"] * (np.cos(B * t) ** 2 - np.sin(B * t) ** 2)
 
-            xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
-            yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
+        #     xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
+        #     yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
 
         pos = np.array([x_c, y_c, z_c])
         vel = np.array([xdot_c, ydot_c, zdot_c])
-        acc = np.array([xddot_c, yddot_c, zddot_c])
+        acc = np.array([xddot_c, yddot_c, -zddot_c])
 
         return pos, vel, acc

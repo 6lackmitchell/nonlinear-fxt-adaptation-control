@@ -148,9 +148,27 @@ def generate_state_figures(t: NDArray, x: NDArray, xr: NDArray, xb: NDArray) -> 
     set_edges_black(ax_x)
     set_edges_black(ax_y)
     set_edges_black(ax_z)
-    ax_x.plot(t, x[0, : len(t), 0])
-    ax_y.plot(t, x[0, : len(t), 1])
-    ax_z.plot(t, x[0, : len(t), 2])
+    ax_x.plot(t, x[0, : len(t), 0], label="x")
+    ax_y.plot(t, x[0, : len(t), 1], label="y")
+    ax_z.plot(t, x[0, : len(t), 2], label="z")
+    ax_x.legend()
+    ax_y.legend()
+    ax_z.legend()
+
+    # Attitude figure
+    fig2 = plt.figure(figsize=(10, 10))
+    ax_phi = fig2.add_subplot(311)
+    ax_the = fig2.add_subplot(312)
+    ax_psi = fig2.add_subplot(313)
+    set_edges_black(ax_phi)
+    set_edges_black(ax_the)
+    set_edges_black(ax_psi)
+    ax_phi.plot(t, x[0, : len(t), 6], label=r"$\phi$")
+    ax_the.plot(t, x[0, : len(t), 7], label=r"$\theta$")
+    ax_psi.plot(t, x[0, : len(t), 8], label=r"$\psi$")
+    ax_phi.legend()
+    ax_the.legend()
+    ax_psi.legend()
 
     # Set up figure
     fig_xy = plt.figure(figsize=(10, 10))
@@ -186,7 +204,7 @@ def generate_state_figures(t: NDArray, x: NDArray, xr: NDArray, xb: NDArray) -> 
     ax_xy.set_ylim([-10, 10])
 
     # Figure list
-    figs = [fig, fig_xy]
+    figs = [fig, fig2, fig_xy]
 
     return figs
 
