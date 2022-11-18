@@ -327,7 +327,7 @@ def generate_cbf_figures(t: NDArray, x: List[NDArray]) -> List:
 
     h_1 = (x[0, : len(t), 0] - cx1) ** 2 + (x[0, : len(t), 1] - cy1) ** 2 - 1
     h_2 = (x[0, : len(t), 0] - cx2) ** 2 + (x[0, : len(t), 1] - cy2) ** 2 - 1
-    h_3 = 5 * x[0, : len(t), 2] + zdot
+    h_3 = x[0, : len(t), 2] + zdot
     h_4 = 100 * (
         -phidot * np.sin(x[0, : len(t), 6]) * np.cos(x[0, : len(t), 7])
         - thedot * np.cos(x[0, : len(t), 6]) * np.sin(x[0, : len(t), 7])

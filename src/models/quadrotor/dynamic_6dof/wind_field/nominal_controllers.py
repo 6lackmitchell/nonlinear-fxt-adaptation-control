@@ -31,15 +31,16 @@ class CascadedTrackingController(Controller):
         "k_r": 1.0,  # Yaw rate proportional gain
         # "k_phi": 125.0,  # Roll moment proportional gain
         # "k_theta": 125.0,  # Pitch moment proportional gain
-        "k_phi": 100.0,  # Roll moment proportional gain
-        "k_theta": 100.0,  # Pitch moment proportional gain
+        "k_phi": 1.0,  # Roll moment proportional gain
+        "k_theta": 1.0,  # Pitch moment proportional gain
         "k_psi": 1.0,  # Yaw moment proportional gain
         "zeta": 1.0,  # Damping ratio
         "tau_f": 0.5,  # Time constant (force control)
         "tau_m": 0.2,  # Time constant (moment control)
         "rate": 2.0,  # Exponential decay rate
+        # "f_gerono": 1 / 20,  # Gerono lemniscate frequency (Hz)
         "f_gerono": 1 / 20,  # Gerono lemniscate frequency (Hz)
-        "a_gerono": 5.0,  # Gerono lemniscate gain
+        "a_gerono": 10.0,  # Gerono lemniscate gain
     }
 
     def __init__(self, ego_id: int):
@@ -150,6 +151,10 @@ class CascadedTrackingController(Controller):
             q_c = R13dot_c * rotation[0, 0] + R23dot_c * rotation[1, 2] - self.residual_dynamics[10]
             r_c = 0 - self.residual_dynamics[11]  # -k_r * (ze[8] - theta + np.pi/2)
 
+            p_c = np.clip(p_c, -np.pi, np.pi)
+            q_c = np.clip(q_c, -np.pi, np.pi)
+            r_c = np.clip(r_c, -np.pi, np.pi)
+
             pitch_moment = (
                 -self.CONTROL_GAINS["k_phi"] * (ze[9] - p_c) * JX - (JY - JZ) * ze[10] * ze[11]
             )
@@ -198,18 +203,18 @@ class CascadedTrackingController(Controller):
         zdot_c = 0.0
         zddot_c = 0.0
 
-        # Gerono Lemniscate Trajectory -- override takeoff when altitude sufficiently high
-        if ze[2] > 1.0:
-            B = 2 * np.pi * self.CONTROL_GAINS["f_gerono"]
+        # # Gerono Lemniscate Trajectory -- override takeoff when altitude sufficiently high
+        # if ze[2] > 1.0:
+        #     B = 2 * np.pi * self.CONTROL_GAINS["f_gerono"]
 
-            x_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
-            y_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
+        #     x_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
+        #     y_c = self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
 
-            xdot_c = B * self.CONTROL_GAINS["a_gerono"] * np.cos(B * t)
-            ydot_c = B * self.CONTROL_GAINS["a_gerono"] * (np.cos(B * t) ** 2 - np.sin(B * t) ** 2)
+        #     xdot_c = B * self.CONTROL_GAINS["a_gerono"] * np.cos(B * t)
+        #     ydot_c = B * self.CONTROL_GAINS["a_gerono"] * (np.cos(B * t) ** 2 - np.sin(B * t) ** 2)
 
-            xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
-            yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
+        #     xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
+        #     yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
 
         xddot = (-2 * dr / tc_x * (xdot - xdot_c) - (ze[0] - x_c) / tc_x**2 + xddot_c) - rotation[
             0
@@ -299,16 +304,17 @@ class GeometricTrackingController(Controller):
 
         # Compute desired direction
         vel_weight = 0.5
-        b1_d = vel_weight * vel_d - (1 - vel_weight) * e_pos
+        b1_d = np.array([1, 0, 0])  # vel_weight * vel_d - (1 - vel_weight) * e_pos
+        b1_d = b1_d / np.linalg.norm(b1_d)
 
         # Compute desired attitude
         b3_d = -kx * e_pos - kv * e_vel - MASS * GRAVITY * e3 + MASS * acc_d
-        unit_b3_d = b3_d / (np.linalg.norm(b3_d) + eps)
+        b3_d = -b3_d / (np.linalg.norm(b3_d) + eps)
+
         b2_d = np.cross(b3_d, b1_d)
-        unit_b2_d = b2_d / (np.linalg.norm(b2_d) + eps)
-        rot_d = np.array(
-            [np.cross(unit_b2_d, unit_b3_d), unit_b2_d, unit_b3_d]
-        ).T  #! this is a potential source of error
+        b1_d = np.cross(b2_d, b3_d)
+
+        rot_d = np.array([b1_d, b2_d, b3_d]).T  #! this is a potential source of error
 
         # Compute attitute tracking error
         ss_mat = rot_d.T @ inertial_to_body_rotation - inertial_to_body_rotation.T @ rot_d
@@ -335,13 +341,14 @@ class GeometricTrackingController(Controller):
 
         # Compute control inputs
         force = (
-            -(MASS * pos_d - kx * e_pos - kv * e_vel - MASS * GRAVITY * e3)
+            -(MASS * acc_d - kx * e_pos - kv * e_vel - MASS * GRAVITY * e3)
             @ inertial_to_body_rotation
             @ e3
         )
+        force = np.clip(force, 0, 30)
 
-        print(f"e_pos: {e_pos}")
-        print(f"e_vel: {e_vel}")
+        # print(f"e_pos: {e_pos}")
+        # print(f"e_vel: {e_vel}")
 
         j_vec = np.array([JX, JY, JZ])
         moments = (

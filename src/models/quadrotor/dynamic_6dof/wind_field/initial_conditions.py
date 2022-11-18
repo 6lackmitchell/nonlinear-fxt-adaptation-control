@@ -8,13 +8,13 @@ wind_field situation.
 import numpy as np
 
 # Define initial states
-ei = np.array([0.1])
-ni = np.array([0.1])
-di = np.array([0.5])
+ei = np.array([0.0])
+ni = np.array([0.0])
+di = np.array([2.0])
 ui = np.array([0.0])
 vi = np.array([0.0])
-wi = np.array([-0.5])
-phii = np.array([0.0])
+wi = np.array([0.0])
+phii = np.array([0.01])
 thetai = np.array([0.0])
 psii = np.array([0.0])
 pi = np.array([0.0])

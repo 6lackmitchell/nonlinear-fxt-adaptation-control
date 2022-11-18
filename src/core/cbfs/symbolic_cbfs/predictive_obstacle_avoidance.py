@@ -38,12 +38,13 @@ thedot = f(np.zeros((len(ss),)), True)[7]
 # Speed CBF Symbolic
 h_oa1_symbolic = dx1**2 + dy1**2 - R**2
 h_oa2_symbolic = dx2**2 + dy2**2 - R**2
-h_oa3_symbolic = 5 * ss[2] + f(np.zeros((len(ss),)), True)[2]
-h_oa4_symbolic = 10 * (
+h_oa3_symbolic = ss[2] + f(np.zeros((len(ss),)), True)[2]
+h_oa4_symbolic = (
     -phidot * se.sin(ss[6]) * se.cos(ss[7])
     - thedot * se.cos(ss[6]) * se.sin(ss[7])
-    + (se.cos(ss[6]) * se.cos(ss[7]) - np.cos(np.pi / 2) * 0.1)
+    + (se.cos(ss[6]) * se.cos(ss[7]) - np.cos(np.pi / 3)) * 0.5
 )
+
 # h_oa4_symbolic = -10 * (
 #     phidot * (se.sin(ss[6]) * se.cos(ss[7]))
 #     + thedot * (se.cos(ss[7]) + se.sin(ss[6]) * se.cos(ss[7]) + se.cos(ss[6]) * se.sin(ss[7]))
@@ -321,7 +322,7 @@ def h_oa3(ego):
     return h_oa3_func(ego)
 
 
-def h_oa4(ego):
+def h_oa4(ego, force):
     return h_oa4_func(ego)
 
 
@@ -343,7 +344,7 @@ def dhdx_oa3(ego):
     return np.squeeze(np.array(ret).astype(np.float64))
 
 
-def dhdx_oa4(ego):
+def dhdx_oa4(ego, force):
     ret = dhdx_oa4_func(ego)
 
     return np.squeeze(np.array(ret).astype(np.float64))

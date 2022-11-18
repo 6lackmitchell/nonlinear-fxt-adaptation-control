@@ -75,7 +75,7 @@ class CbfQpController(Controller):
         self.bu = np.ravel(np.column_stack((u_max, -u_min)))
 
         # Constraint parameters
-        self.max_class_k = 1e6  # Maximum allowable gain for linear class K function
+        self.max_class_k = 1e2  # Maximum allowable gain for linear class K function
         self.nominal_class_k = 1.0  # Nominal value for linear class K function
 
     def _compute_control(
@@ -283,6 +283,7 @@ class CbfQpController(Controller):
     def assign_control(self, solution: dict, ego: int) -> None:
         """Assigns the control solution to the appropriate agent."""
         u = np.array(solution["x"][self.n_controls * ego : self.n_controls * (ego + 1)]).flatten()
+        print(f"alphas: {solution['x'][-1]}")
         self.u = np.clip(u, self.u_min, self.u_max)
         # Assign other agents' controls if this is a centralized node
         if hasattr(self, "centralized_agents"):

@@ -81,6 +81,20 @@ def f_residual_symbolic(xs: list) -> se.DenseMatrix:
         xs[9] * xs[11] * ((JZ0 - JX0) / JY0 - (JZ - JX) / JY),
         xs[9] * xs[10] * ((JX0 - JY0) / JZ0 - (JX - JY) / JZ),
     ]
+    residual_f = [
+        0,
+        0,
+        0,
+        0.0,
+        0.0,
+        0.0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ]
     return se.DenseMatrix(residual_f)
 
 

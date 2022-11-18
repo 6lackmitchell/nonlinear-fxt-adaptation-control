@@ -10,6 +10,7 @@ from core.agent import Agent
 from core.cbfs import cbfs_individual, cbfs_pairwise, cbf0
 from core.controllers.cbf_qp_controller import CbfQpController
 from core.controllers.fxt_adaptation_cbf_qp_controller import FxtAdaptationCbfQpController
+from core.controllers.cascaded_cbf_qp_controller import CascadedCbfQpController
 from ..system import f, g, nControls
 from .timing_params import *
 from .physical_params import U_MAX, U_MIN
@@ -63,11 +64,33 @@ def fxt_adaptation_cbf_qp_controller(idx: int) -> FxtAdaptationCbfQpController:
     )
 
 
+# Define controllers
+def cascaded_cbf_qp_controller(idx: int) -> CascadedCbfQpController:
+    """Returns instance of a CascadedCbfQpController object for agent
+    corresponding to identifier idx.
+
+    Arguments
+        idx: agent identifier
+
+    Returns
+        CascadedCbfQpController
+
+    """
+    return CascadedCbfQpController(
+        U_MAX,
+        U_MIN,
+        N_AGENTS,
+        N_STATES,
+        objective_minimum_deviation,
+        GeometricTrackingController(idx),
+        cbfs_individual,
+        cbfs_pairwise,
+    )
+
+
 # Define CBF Controlled Agents
 cbf_controlled_agents = [
-    Agent(
-        i, z0[i, :], u0, cbf0, time, step_dynamics, fxt_adaptation_cbf_qp_controller(i), save_path
-    )
+    Agent(i, z0[i, :], u0, cbf0, time, step_dynamics, cascaded_cbf_qp_controller(i), save_path)
     for i in range(1)
 ]
 # human_agents = [
