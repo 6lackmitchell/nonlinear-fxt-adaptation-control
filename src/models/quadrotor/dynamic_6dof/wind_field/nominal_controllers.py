@@ -242,14 +242,14 @@ class GeometricTrackingController(Controller):
     """
 
     CONTROL_GAINS = {
-        # "kx": 16.0,  # Position error gain
-        # "kv": 5.6,  # Velocity error gain
-        # "kR": 8.81,  # Attitude error gain
-        # "kO": 2.54,  # Omega error gain
-        "kx": 10.0,  # Position error gain
-        "kv": 1.0,  # Velocity error gain
-        "kR": 1.0,  # Attitude error gain
-        "kO": 1.0,  # Omega error gain
+        "kx": 16.0,  # Position error gain
+        "kv": 5.6,  # Velocity error gain
+        "kR": 8.81,  # Attitude error gain
+        "kO": 2.54,  # Omega error gain
+        # "kx": 10.0,  # Position error gain
+        # "kv": 1.0,  # Velocity error gain
+        # "kR": 1.0,  # Attitude error gain
+        # "kO": 1.0,  # Omega error gain
         "f_gerono": 1 / 20,  # Gerono lemniscate frequency (Hz)
         "a_gerono": 5.0,  # Gerono lemniscate gain
     }
@@ -284,6 +284,7 @@ class GeometricTrackingController(Controller):
         """
         eps = 1e-12
         ze = z[self.ego_id]
+        ze[2] = -ze[2]
 
         # Load gains
         kx = self.CONTROL_GAINS["kx"]
@@ -412,8 +413,8 @@ class GeometricTrackingController(Controller):
         #     xddot_c = -(B**2) * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t)
         #     yddot_c = -4 * B**2 * self.CONTROL_GAINS["a_gerono"] * np.sin(B * t) * np.cos(B * t)
 
-        pos = np.array([x_c, y_c, z_c])
-        vel = np.array([xdot_c, ydot_c, zdot_c])
+        pos = np.array([x_c, y_c, -z_c])
+        vel = np.array([xdot_c, ydot_c, -zdot_c])
         acc = np.array([xddot_c, yddot_c, -zddot_c])
 
         return pos, vel, acc
